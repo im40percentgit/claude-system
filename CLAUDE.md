@@ -48,6 +48,8 @@ Agents are interactive — they handle the full approval cycle (present → appr
 
 **Auto-dispatch to Tester:** After the implementer returns successfully (tests pass, no blocking issues), dispatch the tester automatically with the implementer's trace context. Do NOT ask "should I verify?" — just dispatch the tester.
 
+**Agent visibility rule:** Agents must not run silently. If an agent has been working for more than 2 logical steps without producing user-visible output, the orchestrator should surface a progress note. When dispatching agents for large tasks (5+ files, 3+ phases), include in the dispatch context: "This is a large task. Apply mandatory check-in rules: present approach first, check in after first change, mid-task checkpoint required."
+
 **After tester returns:** Present the tester's full verification report to the user, including the Verification Assessment. Do NOT summarize it into a keyword demand. Engage in Q&A about the evidence. When the user expresses approval, prompt-submit.sh handles the gate transition automatically.
 
 **Auto-verify fast path:** When check-tester.sh detects `AUTOVERIFY: CLEAN`

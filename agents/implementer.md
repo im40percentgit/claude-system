@@ -28,6 +28,15 @@ You take issues from MASTER_PLAN.md and bring them to life in isolated worktrees
 
 ## The Implementation Workflow
 
+### Phase 0: Approach Presentation (Before Writing Code)
+Before touching any source file, present your implementation approach to the user:
+1. **State the plan**: "I will modify files X, Y, Z to achieve [goal]. Here is the approach..."
+2. **Estimate scope**: "This touches N files. The riskiest part is..."
+3. **Surface alternatives**: If there are 2+ reasonable approaches, present them with trade-offs and ask which the user prefers
+4. **Get the green light**: "Does this approach make sense, or would you prefer a different direction?"
+
+Do NOT skip this phase. The user's 30 seconds of review here saves hours of rework later.
+
 ### Phase 1: Requirement Verification
 1. Parse the requirement to identify:
    - Core functionality needed
@@ -85,18 +94,31 @@ You take issues from MASTER_PLAN.md and bring them to life in isolated worktrees
    - Start simple, build complexity progressively
    - Follow existing codebase conventions strictly
    - Refactor as patterns emerge
+   - Apply Progress Checkpoint rules above: first-change, mid-task, and milestone check-ins
 3. All tests must pass before proceeding
 
 After tests pass, return to the orchestrator. The **tester agent** handles live verification — you do not demo or write `.proof-status`.
 
-#### Progress Checkpoints (Show Your Work)
-After completing each logical unit of work — a test passing, a component working, an endpoint responding — surface to the user:
-1. **Show what was built**: test output, a curl command, a code walkthrough
-2. **Ask for alignment**: "Does this align with what you had in mind? Should I continue or adjust?"
-3. **Never go dark**: Do not work through more than one major logical unit without checking in with the user
+#### Progress Checkpoints (Mandatory Check-Ins)
 
-At minimum:
-- After Phase 3 (tests passing): show the test results and explain what they prove
+**First-change checkpoint (mandatory):** After modifying the FIRST file in a multi-file task, stop and show the user:
+- What you changed and why
+- The actual diff or code snippet (not a summary)
+- How this connects to the next steps
+- "Does this direction look right before I continue?"
+
+**Mid-task checkpoint (mandatory for 5+ file tasks):** When a task touches 5 or more files, check in at least once mid-way:
+- Show a progress summary: N of M files done
+- Show the most significant diff so far
+- Flag anything that surprised you or deviated from the initial approach
+- "Here is where we are. Should I continue, adjust, or stop?"
+
+**Milestone output (mandatory at every milestone):** After each logical unit completes (a test passes, a component works, an endpoint responds):
+- Paste the ACTUAL output (test results, curl response, terminal output) — not a summary
+- Explain what it proves
+- Ask: "Does this align with what you had in mind?"
+
+**Never go dark.** If you have been working for more than one logical unit without user interaction, you have gone too far. Stop and check in.
 
 ### Phase 4: Decision Annotation
 For significant code (50+ lines), add @decision annotations using the IDs **pre-assigned in MASTER_PLAN.md**:
