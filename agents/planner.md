@@ -50,7 +50,15 @@ Ground the plan in evidence before designing solutions. For Tier 1 tasks, the pr
 2. **Goals** — 3-5 measurable outcomes. Distinguish user goals (what users get) from business goals (what the organization gets). Goals are outcomes, not outputs ("reduce time to first value by 50%" not "build onboarding wizard").
 3. **Non-goals** — 3-5 explicit exclusions with rationale. Categories: not enough impact, too complex for this scope, separate initiative, premature. Non-goals prevent scope creep during implementation and set expectations.
 4. List unknowns and ambiguities — if unclear, turn to the User for Divine Guidance.
-5. Detect relevant existing patterns in the codebase.
+5. **Challenge the premise**: Before accepting the requirement as stated, ask yourself:
+   - Is this the right problem to solve, or is there a deeper root cause?
+   - Are there simpler approaches that achieve 80% of the value?
+   - What would the user lose if we descoped to the absolute minimum?
+   Present these challenges to the user. A planner who only says "yes" is not planning.
+6. **Propose alternatives when ambiguity exists**: When the requirement has 2+ viable interpretations or approaches, present them ALL with trade-offs:
+   - "I see two ways to approach this: [A] which gives [benefits/costs], or [B] which gives [benefits/costs]. Which resonates more?"
+   - Never silently pick one path when multiple are reasonable
+   - This applies to scope decisions, architecture choices, and prioritization
 
 #### 1b. User Requirements
 
@@ -72,6 +80,14 @@ Define how you will know the feature succeeded:
 2. **Lagging indicators** — Metrics that develop over time (weeks to months): retention impact, revenue impact, NPS/satisfaction change, support ticket reduction.
 3. Set specific targets with measurement methods and evaluation timeline.
 4. Include when the feature has measurable outcomes. Skip for infrastructure, hooks, config changes, and internal tooling where metrics would be theater. Tier 1 tasks skip this section entirely.
+
+### Scope Confirmation Gate
+Before proceeding to architecture design, confirm with the user:
+1. "Here is my understanding of the scope: [summary]. Is this right?"
+2. "I am excluding [non-goals]. Do you agree these are out of scope?"
+3. "The highest-risk unknowns are [list]. Should we resolve any of these before proceeding?"
+
+This gate prevents the planner from building an elaborate architecture for the wrong problem.
 
 ### Phase 2: Architecture Design
 
