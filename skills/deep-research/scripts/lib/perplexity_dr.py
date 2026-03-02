@@ -6,8 +6,19 @@ We use a 300s timeout and extract inline citations from the response content.
 Rate limit is 5-10 req/min so no special handling needed for single requests.
 
 Uses the standard Chat Completions API format.
+
+@decision DEC-PERPLEXITY-CLAIMS: Extract surrounding sentence for each [N] marker
+in report text to populate citation["claim"]. Perplexity returns bare URLs with no
+title in its citations array; without a claim, depth-2+ validation in validate.py
+falls through to the trivial "page reachable" check instead of cross-reference
+validation. By scanning for [N] markers and extracting ~200 chars of context
+trimmed to sentence boundaries, we populate the claim field that
+_validate_url_cross_reference() already consumes. This is purely additive —
+citations without matching markers are left unchanged, and pre-existing claim
+fields are never overwritten.
 """
 
+import re
 from typing import Any, Dict, List, Tuple
 
 from . import http
@@ -23,6 +34,68 @@ def _headers(api_key: str) -> Dict[str, str]:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+
+
+def _extract_claims(report: str, citations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Extract claim context from [N] markers in report text and attach to citations.
+
+    Scans the report for [1], [2], ... markers corresponding to citation indices,
+    extracts ~200 chars of surrounding context trimmed to sentence boundaries,
+    strips the marker itself, and sets citation["claim"] if not already present.
+
+    Args:
+        report: Full report text from Perplexity response.
+        citations: List of citation dicts (may have "url", "title", etc.).
+
+    Returns:
+        The same citations list with "claim" fields added where markers were found.
+        Mutates in place and returns for convenience.
+    """
+    if not citations or not report:
+        return citations
+
+    for i, citation in enumerate(citations):
+        # Skip if claim already populated (e.g. future API versions may return it)
+        if citation.get("claim"):
+            continue
+
+        marker = f"[{i + 1}]"
+        if marker not in report:
+            continue
+
+        pos = report.index(marker)
+
+        # Extract ~200 chars context around marker
+        start = max(0, pos - 200)
+        end = min(len(report), pos + 200)
+        context = report[start:end]
+
+        # Trim to sentence start: find last '. ' or '\n' before the marker.
+        # '. ' delimiter: skip 2 chars (period + space).
+        # '\n' delimiter: skip 1 char (newline only).
+        relative_pos = pos - start
+        dot_pos = context.rfind('. ', 0, relative_pos)
+        nl_pos = context.rfind('\n', 0, relative_pos)
+        if dot_pos > 0 or nl_pos > 0:
+            if dot_pos >= nl_pos:
+                context = context[dot_pos + 2:]
+            else:
+                context = context[nl_pos + 1:]
+
+        # Find sentence end after the marker position in the trimmed context
+        marker_in_ctx = context.find(marker)
+        if marker_in_ctx >= 0:
+            marker_end = marker_in_ctx + len(marker)
+            sent_end = context.find('.', marker_end)
+            if sent_end > 0:
+                context = context[:sent_end + 1]
+
+        # Remove the marker itself from claim text
+        claim = context.replace(marker, '').strip()
+        if claim:
+            citation["claim"] = claim
+
+    return citations
 
 
 def research(api_key: str, topic: str) -> Tuple[str, List[Any], str]:
@@ -66,6 +139,10 @@ def research(api_key: str, topic: str) -> Tuple[str, List[Any], str]:
             citations.append({"url": url})
         elif isinstance(url, dict):
             citations.append(url)
+
+    # Extract claim context from [N] markers in report text
+    # See @decision DEC-PERPLEXITY-CLAIMS in module docstring for rationale.
+    _extract_claims(report, citations)
 
     model_used = resp.get("model", MODEL)
     return report, citations, model_used
