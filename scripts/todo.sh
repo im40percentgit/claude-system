@@ -5,10 +5,13 @@
 # storage as GitHub Issues. Called by /backlog slash command and
 # queried by hooks (session-init, session-summary) for automatic surfacing.
 #
-# @decision GitHub Issues over flat files — provides durability, visibility
-# outside Claude Code (web/mobile/notifications), team access, search,
-# and timestamps for staleness detection. gh CLI already in allowed perms.
-# Flat files are invisible, easy to lose, and lack timestamps. Status: accepted.
+# @decision DEC-TODO-STORAGE-001
+# @title GitHub Issues as todo storage backend
+# @status accepted
+# @rationale GitHub Issues provides durability, visibility outside Claude Code
+#   (web/mobile/notifications), team access, search, and timestamps for
+#   staleness detection. The gh CLI is already in allowed perms. Flat files
+#   are invisible, easy to lose, and lack timestamps.
 #
 # Commands:
 #   add "title" [--global|--config] [--priority=high|medium|low] [--body="details"]
@@ -212,6 +215,16 @@ save_image() {
 }
 
 # Upload image to GitHub Gist, returning raw URL for markdown embedding.
+#
+# @decision DEC-TODO-GIST-URL-001
+# @title Use gh gist view API to get rawUrl instead of manual URL construction
+# @status accepted
+# @rationale Manual URL construction (https://gist.githubusercontent.com/raw/<id>/<file>)
+#   was missing the user segment and commit revision in the path, producing 404s.
+#   The correct structure is /raw/<user>/<id>/<revision>/<file>. Rather than
+#   reconstructing this fragile path manually, we use `gh gist view --json files`
+#   to get the canonical rawUrl directly from the API. This is resilient to any
+#   future GitHub URL structure changes. Falls back gracefully if extraction fails.
 upload_image_gist() {
     local image_path="$1"
     local description="${2:-Todo image attachment}"
@@ -222,13 +235,22 @@ upload_image_gist() {
         return 1
     }
 
-    # Convert gist URL to raw URL for markdown embedding
     # gh gist create returns: https://gist.github.com/<user>/<id>
     local gist_id
     gist_id=$(basename "$gist_url")
     local filename
     filename=$(basename "$image_path")
-    local raw_url="https://gist.githubusercontent.com/raw/${gist_id}/${filename}"
+
+    # Fetch rawUrl directly from GitHub API — avoids manual URL construction
+    # which was missing the user segment and revision in the path.
+    local raw_url
+    raw_url=$(gh gist view "$gist_id" --json files 2>/dev/null \
+        | jq -r --arg f "$filename" '.files[] | select(.filename == $f) | .rawUrl // empty')
+
+    if [[ -z "$raw_url" ]]; then
+        echo "WARNING: Could not extract raw URL from gist. Image saved locally only." >&2
+        return 1
+    fi
 
     echo "$raw_url"
 }
