@@ -4,6 +4,18 @@
 inline validation. Four depth levels: 0=none, 1=liveness (HEAD request),
 2=relevance (fetch + text match), 3=cross-reference (fetch + verify claim).
 Uses urllib directly for raw HTTP (not http.py which parses JSON) — stdlib-only.
+
+@decision DEC-VALIDATE-001
+@title Grounding URL redirect resolution is scoped to vertexaisearch URLs only
+@status accepted
+@rationale Following redirects for ALL citation URLs would add one extra HTTP
+round-trip per citation (performance cost), could trigger unintended side effects
+on URLs that use POST-redirect-GET patterns or auth flows, and is unnecessary for
+most providers (Perplexity, OpenAI return final URLs directly). Gemini's
+vertexaisearch.cloud.google.com/grounding-api-redirect/* URLs are the sole known
+case where the citation URL is an opaque redirect intermediary rather than the
+real source. Scoping the resolution to this specific host pattern minimises
+overhead while fixing the false-negative validation problem described in issue #9.
 """
 
 import re
@@ -11,6 +23,8 @@ import time
 import urllib.request
 import urllib.error
 from typing import Any, Dict, List
+
+_GROUNDING_REDIRECT_MARKER = "vertexaisearch.cloud.google.com/grounding-api-redirect"
 
 
 def _fetch_raw_html(url: str, timeout: int = 15) -> tuple[str, int]:
@@ -33,6 +47,48 @@ def _fetch_raw_html(url: str, timeout: int = 15) -> tuple[str, int]:
     with urllib.request.urlopen(req, timeout=timeout) as response:
         body = response.read().decode('utf-8', errors='ignore')
         return body, response.status
+
+
+def _follow_redirect(url: str) -> str:
+    """Follow HTTP redirects and return the final URL after all hops.
+
+    Attempts a HEAD request first (lightweight, no body download). Falls back
+    to GET when the server returns 405 Method Not Allowed, which some servers
+    return for HEAD on redirect endpoints.
+
+    On any error the original URL is returned unchanged so callers can proceed
+    with the unresolved URL rather than failing hard.
+
+    Args:
+        url: URL to resolve (may be a redirect intermediary)
+
+    Returns:
+        Final URL after following all redirects, or the original URL on error.
+    """
+    headers = {"User-Agent": "deep-research-validator/1.0"}
+
+    # Try HEAD first — cheaper, no response body needed
+    try:
+        req = urllib.request.Request(url, headers=headers, method="HEAD")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return response.url
+    except urllib.error.HTTPError as e:
+        if e.code == 405:
+            # Server does not allow HEAD; fall through to GET
+            pass
+        else:
+            # Other HTTP errors: return original URL unchanged
+            return url
+    except Exception:
+        return url
+
+    # HEAD was rejected — retry with GET
+    try:
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return response.url
+    except Exception:
+        return url
 
 
 def _validate_url_liveness(url: str) -> Dict[str, Any]:
@@ -210,6 +266,14 @@ def validate_citations(results: List[Any], depth: int = 0) -> List[Any]:
                 }
                 continue
 
+            # Follow redirects for grounding URLs (e.g., Gemini's vertexaisearch redirects)
+            if _GROUNDING_REDIRECT_MARKER in url:
+                resolved = _follow_redirect(url)
+                if resolved != url:
+                    citation["original_url"] = url
+                    citation["url"] = resolved
+                    url = resolved
+
             # Validate based on depth
             if depth == 1:
                 validation = _validate_url_liveness(url)
@@ -234,4 +298,3 @@ def validate_citations(results: List[Any], depth: int = 0) -> List[Any]:
             time.sleep(0.2)
 
     return results
-
