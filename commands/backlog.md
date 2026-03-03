@@ -221,11 +221,160 @@ View: https://github.com/juanandresgs/claude-ctrl/issues/<N>
 ```
 
 #### Tier: complex
+
+<!-- @decision DEC-ENRICH-003
+     Rate limiting via TSV log file (~/.config/cc-todos/enrich-log.tsv). Max 3
+     complex enrichments per rolling hour, checked before invoking deep-research.
+     TSV is human-readable, zero-dependency, and auditable. Addresses: REQ-P0-007. -->
+
+**Complex enrichment steps:**
+
+**Step C1 — Rate limit check:**
+```bash
+source ~/.claude/scripts/enrich-ratelimit.sh
+check_rate_limit
+```
+If `check_rate_limit` returns 1 (over limit), use AskUserQuestion before proceeding:
+- Header: "Rate limit reached"
+- Question: "You have already run 3 complex enrichments in the last hour (the maximum). Running another will invoke /deep-research and consume additional API credits. Proceed anyway?"
+- Options: ["Yes, proceed anyway", "No, skip for now"]
+
+If the user chooses "No, skip for now", stop here and report:
+```
+Complex enrichment skipped — rate limit reached (3/3 this hour).
+Try again after the hour window resets, or use --force to bypass.
+```
+
+**Step C2 — Confirmation prompt:**
+Even if under rate limit, use AskUserQuestion to confirm cost before proceeding:
+- Header: "Complex enrichment"
+- Question: "Issue #N is classified as complex. Enrichment will invoke /deep-research (takes 2-10 minutes and uses API credits). Proceed?"
+- Options: ["Yes, run deep-research and generate PRD skeleton", "No, skip enrichment"]
+
+If the user declines, stop here and report:
+```
+Complex enrichment skipped for issue #N.
+Tip: Run /backlog enrich <N> again when ready.
+```
+
+**Step C3 — Extract title and original body:**
+You already have the issue JSON in `$SCRATCHPAD/enrich-issue.json`. Parse out `title` and `body` from that file. Call the title `ISSUE_TITLE` and the body `ORIGINAL_BODY`.
+
+**Step C4 — Run deep-research:**
+Invoke the deep-research skill with the issue title as the research query:
+```
+Use the Skill tool: skill="deep-research", args="<ISSUE_TITLE>"
+```
+The skill produces a comparative research report. Capture the key findings — the most relevant options, trade-offs, prior art, and recommendations — as `RESEARCH_FINDINGS`. Distill to 4-8 bullet points suitable for an issue body section.
+
+**Step C5 — Generate PRD skeleton:**
+Based on `ISSUE_TITLE`, `ORIGINAL_BODY`, and `RESEARCH_FINDINGS`, generate a PRD skeleton inline. Do NOT invoke the /prd skill — generate it directly following this template:
+
+```
+#### Problem Statement
+<1-2 sentences: what pain exists and for whom>
+
+#### Goals
+- <goal 1>
+- <goal 2>
+- <goal 3>
+
+#### Non-Goals
+- <non-goal 1>
+- <non-goal 2>
+
+#### Requirements
+
+**P0 (Must Have)**
+- <P0 requirement 1>
+- <P0 requirement 2>
+
+**P1 (Nice to Have)**
+- <P1 requirement 1>
+
+#### Key Decisions
+- <decision or open question 1>
+- <decision or open question 2>
+```
+
+Call this `PRD_SKELETON`.
+
+**Step C6 — Generate acceptance criteria:**
+From `PRD_SKELETON`'s P0 requirements, generate 4-6 concrete, testable acceptance criteria as checkbox items. Format:
+```
+- [ ] <criterion>
+```
+Call this `ACCEPTANCE_CRITERIA`.
+
+**Step C7 — Identify affected files:**
+Analyze keywords in `ISSUE_TITLE` and `ORIGINAL_BODY`. Extract 3-6 meaningful technical terms. Use Grep and Glob to search the codebase for the most related files. Collect the top 5-10 most relevant paths as `AFFECTED_FILES`.
+
+**Step C8 — Build the enriched body:**
+Construct the full enriched body in this exact structure:
+
+```
+## Enriched by /backlog enrich
+
+### Complexity: Complex
+
+### Research Summary
+
+<RESEARCH_FINDINGS bullets, one per line>
+
+### PRD Skeleton
+
+<PRD_SKELETON content>
+
+### Acceptance Criteria
+
+<ACCEPTANCE_CRITERIA items, one per line>
+
+### Affected Files
+
+<AFFECTED_FILES paths, one per line as a bullet list>
+
+---
+<details><summary>Original Issue</summary>
+
+<ORIGINAL_BODY>
+
+</details>
+```
+
+**Step C9 — Update the issue body:**
+Write the enriched body to a temp file to handle multi-line content safely:
+```bash
+ENRICHED_BODY_FILE="$SCRATCHPAD/enriched-body-N.md"
+cat > "$ENRICHED_BODY_FILE" << 'ENRICH_EOF'
+<the full enriched body constructed in Step C8>
+ENRICH_EOF
+
+gh issue edit <N> --repo juanandresgs/claude-ctrl --body "$(cat "$ENRICHED_BODY_FILE")"
+```
+
+**Step C10 — Add label and log:**
+```bash
+source ~/.claude/scripts/todo.sh
+ensure_enriched_label "juanandresgs/claude-ctrl"
+gh issue edit <N> --repo juanandresgs/claude-ctrl --add-label "enriched"
+
+# Record this run in the rate limit log
+source ~/.claude/scripts/enrich-ratelimit.sh
+log_enrichment <N> complex <duration_seconds>
+```
+For `<duration_seconds>`, capture the wall-clock time of Steps C4-C9 (approximate seconds elapsed since Step C4 started).
+
 Report to the user:
 ```
-Issue #N classified as: complex
+Issue #N enriched successfully.
 Title: <title>
-Complex enrichment coming in Phase 3 (/backlog enrich will invoke deep-research and generate a PRD skeleton).
+Tier: complex
+Research summary: <N> findings
+PRD skeleton: generated (Problem Statement, Goals, Non-Goals, Requirements, Key Decisions)
+Acceptance criteria: <N> items generated
+Affected files: <N> files identified
+Label `enriched` added.
+View: https://github.com/juanandresgs/claude-ctrl/issues/<N>
 ```
 
 ### Otherwise → Create a new todo
