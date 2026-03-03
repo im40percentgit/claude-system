@@ -191,6 +191,19 @@ ensure_component_label() {
         $repo_flag 2>/dev/null || true
 }
 
+# Create 'enriched' label in target repository if it doesn't exist.
+# Called by /backlog enrich after successfully enriching an issue.
+ensure_enriched_label() {
+    local repo="${1:-}"
+    local repo_flag=""
+    [[ -n "$repo" ]] && repo_flag="--repo $repo"
+
+    gh label create "enriched" \
+        --description "Issue enriched by /backlog enrich" \
+        --color "0E8A16" \
+        $repo_flag 2>/dev/null || true
+}
+
 # --- Image helpers ---
 
 # Save image to local cache directory with metadata for later upload.

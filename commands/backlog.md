@@ -1,7 +1,7 @@
 ---
 name: backlog
-description: Manage your backlog — list, create, close, and triage todos (GitHub Issues). Usage: /backlog [text | done <#> | stale | review | group | --global | --config | --project]
-argument-hint: "[todo text | done <#> | stale | review | group <component> #N... | --global | --config | --project]"
+description: Manage your backlog — list, create, close, triage, and enrich todos (GitHub Issues). Usage: /backlog [text | done <#> | stale | review | group | enrich <#> | --global | --config | --project]
+argument-hint: "[todo text | done <#> | stale | review | group <component> #N... | enrich <#> [--force] | --global | --config | --project]"
 ---
 
 # /backlog — Unified Backlog Management
@@ -83,6 +83,71 @@ Saves the image locally to `~/.claude/todo-images/` and optionally uploads to a 
 ### First word is `images` → List images for an issue
 ```bash
 ~/.claude/scripts/todo.sh images <issue-number> [--global|--config]
+```
+
+### First word is `enrich` → Enrich an issue with AI-generated content
+
+<!-- @decision DEC-ENRICH-001
+     Orchestration lives here (backlog.md slash command) rather than a standalone
+     bash script because generating acceptance criteria and PRD skeletons requires
+     Claude's intelligence. Bash handles only classification and label checks.
+     Addresses: REQ-P0-002. -->
+
+<!-- @decision DEC-ENRICH-002
+     Keyword-based heuristics classify complexity: simple/medium/complex.
+     Implemented in scripts/enrich-classify.sh. No ML, no external deps.
+     Addresses: REQ-P0-001. -->
+
+Extract the issue number from the remaining arguments (strip leading `#` if present).
+Also check for `--force` flag in the arguments.
+
+**Step 1 — Read the issue:**
+```bash
+gh issue view <N> --repo juanandresgs/claude-ctrl --json title,body,labels
+```
+Save the output to `$SCRATCHPAD/enrich-issue.json`. Read it silently with the Read tool.
+
+**Step 2 — Check for `enriched` label:**
+From the JSON, inspect the `labels` array. If any label has `name == "enriched"` AND `--force` was NOT passed:
+- Report: "Issue #N already has the `enriched` label. Use `--force` to re-enrich."
+- Stop here.
+
+**Step 3 — Classify complexity:**
+```bash
+source ~/.claude/scripts/enrich-classify.sh
+classify_complexity "<title>" "<body>"
+```
+Or call directly:
+```bash
+~/.claude/scripts/enrich-classify.sh "<title>" "<body>"
+```
+Capture the output as `TIER` (one of: `simple`, `medium`, `complex`).
+
+**Step 4 — Dispatch by tier:**
+
+#### Tier: simple
+Report to the user:
+```
+Issue #N classified as: simple
+Title: <title>
+No enrichment needed for simple issues — the title and description are sufficient.
+Tip: If this turns out to be more involved than expected, re-run with /backlog enrich <N> --force
+```
+
+#### Tier: medium
+Report to the user:
+```
+Issue #N classified as: medium
+Title: <title>
+Medium enrichment coming in Phase 2 (/backlog enrich will auto-generate acceptance criteria and affected files).
+```
+
+#### Tier: complex
+Report to the user:
+```
+Issue #N classified as: complex
+Title: <title>
+Complex enrichment coming in Phase 3 (/backlog enrich will invoke deep-research and generate a PRD skeleton).
 ```
 
 ### Otherwise → Create a new todo
