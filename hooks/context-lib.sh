@@ -523,8 +523,16 @@ finalize_trace() {
         fi
     fi
 
-    # Check proof status from project
-    local proof_file="${project_root}/.claude/.proof-status"
+    # Check proof status from project (worktree-aware via resolve_proof_file)
+    # Use a subshell to isolate PROJECT_ROOT/CLAUDE_DIR overrides so resolve_proof_file
+    # reads the correct breadcrumb for this project's worktree, not the caller's context.
+    local proof_file
+    proof_file=$(
+        export PROJECT_ROOT="$project_root"
+        export CLAUDE_DIR
+        CLAUDE_DIR=$(get_claude_dir)
+        resolve_proof_file 2>/dev/null
+    ) || proof_file="${project_root}/.claude/.proof-status"
     if [[ -f "$proof_file" ]]; then
         local ps
         ps=$(cut -d'|' -f1 "$proof_file")

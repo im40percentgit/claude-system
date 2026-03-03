@@ -17,8 +17,7 @@
 
 set -euo pipefail
 
-source "$(dirname "$0")/log.sh"
-source "$(dirname "$0")/context-lib.sh"
+source "$(dirname "$0")/source-lib.sh"
 
 HOOK_INPUT=$(read_input)
 PROMPT=$(echo "$HOOK_INPUT" | jq -r '.prompt // empty' 2>/dev/null)
@@ -106,11 +105,11 @@ fi
 # When user says "verified" and a proof flow is active (.proof-status = pending),
 # write verified|<timestamp>. This is the ONLY path to verified status.
 # No agent can write "verified" directly — guard.sh blocks it.
-PROOF_FILE="${CLAUDE_DIR}/.proof-status"
+PROOF_FILE=$(resolve_proof_file)
 if echo "$PROMPT" | grep -qiE '\bverified\b|\bapproved?\b|\blgtm\b|\blooks\s+good\b|\bship\s+it\b|\bapprove\s+for\s+commit\b'; then
     if [[ -f "$PROOF_FILE" ]]; then
         CURRENT_STATUS=$(cut -d'|' -f1 "$PROOF_FILE" 2>/dev/null)
-        if [[ "$CURRENT_STATUS" == "pending" ]]; then
+        if [[ "$CURRENT_STATUS" == "pending" || "$CURRENT_STATUS" == "needs-verification" ]]; then
             echo "verified|$(date +%s)" > "$PROOF_FILE"
             CONTEXT_PARTS+=("Proof-of-work verified by user. Guardian dispatch is now unblocked.")
         fi

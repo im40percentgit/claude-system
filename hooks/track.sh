@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 # Project-aware file change tracking.
 # PostToolUse hook — matcher: Write|Edit
 #
 # Tracks file changes per-session in the PROJECT's .claude directory.
 # Uses CLAUDE_PROJECT_DIR when available, falls back to git root detection.
 # Session-scoped to avoid collisions with concurrent sessions.
+#
+# @decision DEC-PROOF-PATH-001
+# @title Use resolve_proof_file() for proof-status invalidation path
+# @status accepted
+# @rationale Hardcoded PROOF_FILE="$TRACKING_DIR/.proof-status" missed worktree-specific
+#   proof files. resolve_proof_file() reads the breadcrumb written by task-track.sh
+#   Gate C to find the active proof-status path (global or worktree-local). Fixes #10.
 
-source "$(dirname "$0")/log.sh"
+set -euo pipefail
+
+source "$(dirname "$0")/source-lib.sh"
 
 HOOK_INPUT=$(read_input)
 FILE_PATH=$(get_field '.tool_input.file_path')
@@ -38,7 +45,7 @@ rm -f "$TMPFILE"
 
 # --- Invalidate proof-status when non-test source files change ---
 # If user verified the feature and then source code changes, proof is stale.
-PROOF_FILE="$TRACKING_DIR/.proof-status"
+PROOF_FILE=$(resolve_proof_file)
 if [[ -f "$PROOF_FILE" ]]; then
     PROOF_STATUS=$(cut -d'|' -f1 "$PROOF_FILE")
     if [[ "$PROOF_STATUS" == "verified" ]]; then

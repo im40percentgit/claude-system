@@ -9,6 +9,16 @@
 # @status accepted
 # @rationale SubagentStart hooks don't fire in Claude Code v2.1.38.
 #   PreToolUse:Task demonstrably fires before every Task dispatch.
+#
+# @decision DEC-PROOF-PATH-001
+# @title Use resolve_proof_file() for all proof-status path resolution
+# @status accepted
+# @rationale Hardcoded CLAUDE_DIR/.proof-status caused clobbering when multiple
+#   implementers/testers ran in parallel worktrees. resolve_proof_file() reads
+#   a per-project breadcrumb (.active-worktree-path-{phash}) to find the
+#   worktree-specific proof file. Gate C writes this breadcrumb when an
+#   implementer is dispatched from inside a worktree (PROJECT_ROOT != main
+#   worktree path). Fixes issue #10.
 
 set -euo pipefail
 
@@ -48,7 +58,7 @@ EOF
 # Meta-repo (~/.claude) is exempt — no feature verification needed for config.
 if [[ "$AGENT_TYPE" == "guardian" ]]; then
     if ! is_claude_meta_repo "$PROJECT_ROOT"; then
-        PROOF_FILE="${CLAUDE_DIR}/.proof-status"
+        PROOF_FILE=$(resolve_proof_file)
         if [[ -f "$PROOF_FILE" ]]; then
             PROOF_STATUS=$(cut -d'|' -f1 "$PROOF_FILE")
             if [[ "$PROOF_STATUS" != "verified" ]]; then
@@ -80,9 +90,18 @@ fi
 # Creates .proof-status = needs-verification when implementer is dispatched.
 # This activates Gate A — Guardian will be blocked until verification completes.
 # Meta-repo (~/.claude) is exempt.
+# Also writes a worktree breadcrumb when running inside a worktree, so that
+# resolve_proof_file() can locate the worktree-specific proof file.
 if [[ "$AGENT_TYPE" == "implementer" ]]; then
     if ! is_claude_meta_repo "$PROJECT_ROOT"; then
-        PROOF_FILE="${CLAUDE_DIR}/.proof-status"
+        # Write breadcrumb if dispatching from inside a worktree
+        MAIN_WORKTREE=$(git -C "$PROJECT_ROOT" worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')
+        if [[ -n "$MAIN_WORKTREE" && "$PROJECT_ROOT" != "$MAIN_WORKTREE" ]]; then
+            BREADCRUMB_PHASH=$(project_hash "$PROJECT_ROOT")
+            echo "$PROJECT_ROOT" > "${CLAUDE_DIR}/.active-worktree-path-${BREADCRUMB_PHASH}"
+        fi
+
+        PROOF_FILE=$(resolve_proof_file)
         # Only activate if no proof flow is already active
         if [[ ! -f "$PROOF_FILE" ]]; then
             mkdir -p "$(dirname "$PROOF_FILE")"

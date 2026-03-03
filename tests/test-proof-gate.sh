@@ -152,11 +152,13 @@ EOF
 )
 
 cd "$TEMP_REPO" && \
-    CLAUDE_PROJECT_DIR="$TEMP_REPO" \
-    echo "$INPUT_JSON" | bash "$HOOKS_DIR/task-track.sh" > /dev/null 2>&1
+    CLAUDE_PROJECT_DIR="$TEMP_REPO" CLAUDE_DIR="$TEMP_REPO/.claude" \
+    bash "$HOOKS_DIR/task-track.sh" <<< "$INPUT_JSON" > /dev/null 2>&1
 
-if [[ -f "$TEMP_REPO/.claude/.proof-status" ]]; then
-    STATUS=$(cut -d'|' -f1 "$TEMP_REPO/.claude/.proof-status")
+# resolve_proof_file may return a scoped path (.proof-status-{phash}), so check any match
+PROOF_FOUND=$(find "$TEMP_REPO/.claude" -maxdepth 1 -name '.proof-status*' -print -quit 2>/dev/null)
+if [[ -n "$PROOF_FOUND" ]]; then
+    STATUS=$(cut -d'|' -f1 "$PROOF_FOUND")
     if [[ "$STATUS" == "needs-verification" ]]; then
         pass_test
     else
@@ -405,6 +407,198 @@ else
 fi
 
 cd "$PROJECT_ROOT"  # Ensure we're not in TEMP_REPO before deleting
+rm -rf "$TEMP_REPO"
+
+# --- Tests 21-24: Worktree breadcrumb and resolve_proof_file ---
+# These tests validate that Gate C writes breadcrumbs for worktrees,
+# that Gate A reads from the worktree proof file via the breadcrumb,
+# that stale breadcrumbs fall back to the main CLAUDE_DIR proof file,
+# and that resolve_proof_file returns the worktree path when active.
+#
+# Tests 21 and 22 require repos outside ~/.claude because is_claude_meta_repo()
+# exempts all directories under ~/.claude from proof gates. We use /home/j/tmp/
+# which is outside the ~/.claude tree and gets cleaned up after each test.
+# Tests 23-24 use $PROJECT_ROOT/tmp/ (which is under ~/.claude but those
+# tests don't invoke task-track.sh proof gates — they test resolve_proof_file
+# directly or use the guardian path after setting up state manually).
+
+# Helper: compute 8-char project hash (mirrors project_hash() in log.sh)
+compute_phash() {
+    echo "$1" | shasum -a 256 | cut -c1-8
+}
+
+# Scratch directory outside ~/.claude for tests that need non-meta-repo git repos.
+# These tests use /home/j/tmp/ because all paths under ~/.claude are exempt from
+# proof gates via is_claude_meta_repo(), which would skip the code under test.
+WT_SCRATCH_BASE="/home/j/tmp/test-proof-gate-$$"
+mkdir -p "$WT_SCRATCH_BASE"
+
+# --- Test 21: Gate C writes breadcrumb when in a worktree ---
+# Creates a real git worktree via `git worktree add`. detect_project_root
+# returns the worktree path (it has its own .git file), while
+# `git worktree list --porcelain` returns the main repo as first entry.
+# So PROJECT_ROOT != MAIN_WORKTREE, triggering breadcrumb write in Gate C.
+# CLAUDE_DIR is set to a temp location so breadcrumb lands there (not ~/.claude).
+run_test "Gate C: Implementer dispatch writes breadcrumb when in a worktree"
+
+MAIN21="$WT_SCRATCH_BASE/main21"
+mkdir -p "$MAIN21"
+git -C "$MAIN21" -c core.hooksPath=/dev/null -c commit.gpgsign=false init > /dev/null 2>&1
+git -C "$MAIN21" -c core.hooksPath=/dev/null -c commit.gpgsign=false \
+    -c user.email="test@test" -c user.name="test" commit --allow-empty -m "init" > /dev/null 2>&1
+WT21="$WT_SCRATCH_BASE/wt21"
+git -C "$MAIN21" -c core.hooksPath=/dev/null worktree add "$WT21" -b test-wt > /dev/null 2>&1
+mkdir -p "$WT21/.claude"
+
+INPUT_JSON=$(cat <<'EOF'
+{
+  "tool_name": "Task",
+  "tool_input": {
+    "subagent_type": "implementer",
+    "instructions": "Test implementation"
+  }
+}
+EOF
+)
+
+# CLAUDE_DIR is overwritten by get_claude_dir() inside the hook,
+# so it always resolves to PROJECT_ROOT/.claude = WT21/.claude
+cd "$WT21" && \
+    CLAUDE_PROJECT_DIR="$WT21" \
+    bash "$HOOKS_DIR/task-track.sh" <<< "$INPUT_JSON" > /dev/null 2>&1
+cd "$PROJECT_ROOT"
+
+WT21_PHASH=$(compute_phash "$WT21")
+WT21_BREADCRUMB="$WT21/.claude/.active-worktree-path-${WT21_PHASH}"
+if [[ -f "$WT21_BREADCRUMB" ]]; then
+    WT21_CONTENT=$(cat "$WT21_BREADCRUMB")
+    if [[ "$WT21_CONTENT" == "$WT21" ]]; then
+        pass_test
+    else
+        fail_test "Breadcrumb content wrong: expected '$WT21', got '$WT21_CONTENT'"
+    fi
+else
+    fail_test "Breadcrumb not written at $WT21_BREADCRUMB (phash=$WT21_PHASH)"
+fi
+
+# --- Test 22: Gate A reads from worktree proof file via breadcrumb ---
+# Creates a git repo outside ~/.claude with CLAUDE_DIR set to its .claude/.
+# Writes a breadcrumb pointing to a real directory with needs-verification.
+# The scoped proof in CLAUDE_DIR has verified, but resolve_proof_file should
+# follow the breadcrumb and return the worktree path — causing Guardian deny.
+run_test "Gate A: Guardian blocked when worktree proof is needs-verification (breadcrumb active)"
+
+TEMP22="$WT_SCRATCH_BASE/gate22"
+mkdir -p "$TEMP22/.claude"
+GIT_CONFIG_GLOBAL=/dev/null git -C "$TEMP22" -c core.hooksPath=/dev/null init > /dev/null 2>&1
+
+# Fake worktree directory (doesn't need to be a real git worktree for this test —
+# we're testing resolve_proof_file's breadcrumb follow, not Gate C's write)
+WT22_DIR="$WT_SCRATCH_BASE/fake-wt22"
+mkdir -p "$WT22_DIR/.claude"
+
+PHASH22=$(compute_phash "$TEMP22")
+# Breadcrumb in TEMP22's .claude pointing to the fake worktree dir
+echo "$WT22_DIR" > "$TEMP22/.claude/.active-worktree-path-${PHASH22}"
+# Worktree has needs-verification
+echo "needs-verification|12345" > "$WT22_DIR/.claude/.proof-status"
+# Scoped proof in main has verified (breadcrumb should take priority)
+echo "verified|99999" > "$TEMP22/.claude/.proof-status-${PHASH22}"
+
+INPUT_JSON=$(cat <<EOF
+{
+  "tool_name": "Task",
+  "tool_input": {
+    "subagent_type": "guardian",
+    "instructions": "Test guardian"
+  }
+}
+EOF
+)
+
+OUTPUT=$(cd "$TEMP22" && \
+         CLAUDE_PROJECT_DIR="$TEMP22" \
+         bash "$HOOKS_DIR/task-track.sh" <<< "$INPUT_JSON" 2>&1) || true
+cd "$PROJECT_ROOT"
+
+if echo "$OUTPUT" | grep -q "deny"; then
+    pass_test
+else
+    fail_test "Guardian allowed despite worktree needs-verification (breadcrumb should redirect)"
+fi
+
+# Clean up scratch base after tests 21+22
+rm -rf "$WT_SCRATCH_BASE"
+
+# --- Test 23: Stale breadcrumb falls back to main CLAUDE_DIR proof file ---
+run_test "Gate A: Stale breadcrumb falls back to main .proof-status (allows verified)"
+TEMP_REPO=$(mktemp -d "$PROJECT_ROOT/tmp/test-wt-stale-XXXXXX")
+GIT_CONFIG_GLOBAL=/dev/null git -C "$TEMP_REPO" \
+    -c core.hooksPath=/dev/null init > /dev/null 2>&1
+mkdir -p "$TEMP_REPO/.claude"
+
+# Write breadcrumb pointing to a non-existent directory
+PHASH=$(compute_phash "$TEMP_REPO")
+echo "/nonexistent/worktree/path" > "$TEMP_REPO/.claude/.active-worktree-path-${PHASH}"
+# Main scoped proof has verified
+echo "verified|12345" > "$TEMP_REPO/.claude/.proof-status-${PHASH}"
+
+INPUT_JSON=$(cat <<EOF
+{
+  "tool_name": "Task",
+  "tool_input": {
+    "subagent_type": "guardian",
+    "instructions": "Test guardian stale breadcrumb"
+  }
+}
+EOF
+)
+
+OUTPUT=$(cd "$TEMP_REPO" && \
+         CLAUDE_PROJECT_DIR="$TEMP_REPO" \
+         echo "$INPUT_JSON" | bash "$HOOKS_DIR/task-track.sh" 2>&1) || true
+cd "$PROJECT_ROOT"
+
+if echo "$OUTPUT" | grep -q "deny"; then
+    fail_test "Guardian blocked with stale breadcrumb + verified main status (should allow)"
+else
+    pass_test
+fi
+
+rm -rf "$TEMP_REPO"
+
+# --- Test 24: resolve_proof_file returns worktree path when breadcrumb is active ---
+run_test "resolve_proof_file: returns worktree .proof-status when breadcrumb is active"
+TEMP_REPO=$(mktemp -d "$PROJECT_ROOT/tmp/test-wt-resolve-XXXXXX")
+GIT_CONFIG_GLOBAL=/dev/null git -C "$TEMP_REPO" \
+    -c core.hooksPath=/dev/null init > /dev/null 2>&1
+mkdir -p "$TEMP_REPO/.claude"
+
+# Simulate worktree by writing breadcrumb + proof file in a subdir
+WT_SUBDIR="$TEMP_REPO/fake-wt"
+mkdir -p "$WT_SUBDIR/.claude"
+
+PHASH=$(compute_phash "$TEMP_REPO")
+echo "$WT_SUBDIR" > "$TEMP_REPO/.claude/.active-worktree-path-${PHASH}"
+echo "pending|12345" > "$WT_SUBDIR/.claude/.proof-status"
+
+# Source log.sh and call resolve_proof_file with PROJECT_ROOT = TEMP_REPO
+RESULT=$(cd "$TEMP_REPO" && \
+         bash -c "
+             PROJECT_ROOT='$TEMP_REPO'
+             CLAUDE_DIR='$TEMP_REPO/.claude'
+             source '$HOOKS_DIR/log.sh'
+             resolve_proof_file
+         " 2>/dev/null)
+cd "$PROJECT_ROOT"
+
+EXPECTED="$WT_SUBDIR/.claude/.proof-status"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    pass_test
+else
+    fail_test "resolve_proof_file returned '$RESULT', expected '$EXPECTED'"
+fi
+
 rm -rf "$TEMP_REPO"
 
 # --- Summary ---

@@ -9,6 +9,7 @@
 #   get_field <jq_path>         - Extract field from cached input
 #   detect_project_root         - Find git root or fall back to CLAUDE_PROJECT_DIR
 #   get_claude_dir              - Get .claude directory path (handles ~/.claude special case)
+#   resolve_proof_file          - Resolve the active .proof-status path (worktree-aware)
 #
 # All output goes to stderr so it doesn't interfere with hook JSON output.
 #
@@ -18,6 +19,29 @@
 # @rationale Centralized helper functions prevent duplication and ensure consistent
 #   behavior across all hooks. get_claude_dir() fixes #77 double-nesting bug.
 #   detect_project_root() includes #34 deleted CWD recovery.
+#   resolve_proof_file() fixes the worktree proof-status mismatch (#proof-path).
+#   project_hash() and scoped state files fix cross-project contamination (#isolation).
+#
+# @decision DEC-PROOF-PATH-002
+# @title resolve_proof_file: breadcrumb-based worktree proof-status resolution
+# @status accepted
+# @rationale When orchestrator runs from ~/.claude and dispatches agents to a git
+#   worktree, .proof-status files end up in two locations: the orchestrator's
+#   CLAUDE_DIR and the worktree's .claude/. The breadcrumb file
+#   .active-worktree-path (written by task-track.sh at implementer dispatch)
+#   lets hooks find the active path without scanning all worktrees. Resolution
+#   logic: if breadcrumb exists AND worktree .proof-status is in pending or
+#   verified state → return worktree path; otherwise return CLAUDE_DIR path.
+#   Stale breadcrumbs (deleted worktree) fall back to CLAUDE_DIR safely.
+#
+# @decision DEC-ISOLATION-001
+# @title Project-scoped state files via 8-char hash suffix
+# @status accepted
+# @rationale State files (.proof-status, .active-worktree-path, .active-*-* markers)
+#   are global and contaminate subsequent sessions on different projects. Appending
+#   an 8-char SHA-256 hash of project_root to each file name scopes it to one project.
+#   Reads check scoped file first, fall back to unscoped for backward compatibility.
+#   Writes always go to scoped files. Cleanup removes both scoped and unscoped.
 
 # Cache stdin so multiple functions can read it
 HOOK_INPUT=""
@@ -90,5 +114,91 @@ get_claude_dir() {
     fi
 }
 
+# project_hash — compute deterministic 8-char hash of a project root path.
+# Usage: project_hash "/path/to/project"
+# Returns: 8-character hex string, consistent across calls for the same input.
+project_hash() {
+    echo "${1:?project_hash requires a path argument}" | shasum -a 256 | cut -c1-8
+}
+
+# resolve_proof_file — return the active .proof-status path for the current context.
+#
+# In non-worktree scenarios (no breadcrumb): returns CLAUDE_DIR/.proof-status-{phash}
+# (falls back to .proof-status for backward compat with pre-migration state).
+# In worktree scenarios: reads .active-worktree-path-{phash} breadcrumb first,
+# then .active-worktree-path (old format). If the breadcrumb exists and the
+# worktree has a .proof-status in "pending" or "verified" state, returns the
+# worktree path. Stale breadcrumbs (deleted worktree) fall back to CLAUDE_DIR.
+#
+# Callers that write "verified" should also dual-write to the orchestrator's
+# copy so guard.sh can find it regardless of which path it checks.
+resolve_proof_file() {
+    local claude_dir="${CLAUDE_DIR:-$(get_claude_dir)}"
+    local project_root="${PROJECT_ROOT:-$(detect_project_root)}"
+    local phash
+    phash=$(project_hash "$project_root")
+    local scoped_breadcrumb="$claude_dir/.active-worktree-path-${phash}"
+    local legacy_breadcrumb="$claude_dir/.active-worktree-path"
+    local scoped_proof="$claude_dir/.proof-status-${phash}"
+    local default_proof="$claude_dir/.proof-status"
+
+    # Determine which breadcrumb to use: scoped takes priority over legacy
+    local breadcrumb=""
+    if [[ -f "$scoped_breadcrumb" ]]; then
+        breadcrumb="$scoped_breadcrumb"
+    elif [[ -f "$legacy_breadcrumb" ]]; then
+        breadcrumb="$legacy_breadcrumb"
+    fi
+
+    # No breadcrumb — standard (non-worktree) path
+    if [[ -z "$breadcrumb" ]]; then
+        # Return scoped proof if it has active state, else legacy, else default scoped
+        if [[ -f "$scoped_proof" ]]; then
+            echo "$scoped_proof"
+        elif [[ -f "$default_proof" ]]; then
+            echo "$default_proof"
+        else
+            echo "$scoped_proof"
+        fi
+        return
+    fi
+
+    local worktree_path
+    worktree_path=$(cat "$breadcrumb" 2>/dev/null | tr -d '[:space:]')
+
+    # Stale breadcrumb: worktree directory no longer exists
+    if [[ -z "$worktree_path" || ! -d "$worktree_path" ]]; then
+        if [[ -f "$scoped_proof" ]]; then
+            echo "$scoped_proof"
+        elif [[ -f "$default_proof" ]]; then
+            echo "$default_proof"
+        else
+            echo "$scoped_proof"
+        fi
+        return
+    fi
+
+    local worktree_proof="$worktree_path/.claude/.proof-status"
+
+    # Check if worktree has an active proof-status (pending or verified only)
+    if [[ -f "$worktree_proof" ]]; then
+        local wt_status
+        wt_status=$(cut -d'|' -f1 "$worktree_proof" 2>/dev/null || echo "")
+        if [[ "$wt_status" == "pending" || "$wt_status" == "verified" || "$wt_status" == "needs-verification" ]]; then
+            echo "$worktree_proof"
+            return
+        fi
+    fi
+
+    # Worktree has no active proof — use orchestrator's scoped path
+    if [[ -f "$scoped_proof" ]]; then
+        echo "$scoped_proof"
+    elif [[ -f "$default_proof" ]]; then
+        echo "$default_proof"
+    else
+        echo "$scoped_proof"
+    fi
+}
+
 # Export for subshells
-export -f log_json log_info read_input get_field detect_project_root get_claude_dir
+export -f log_json log_info read_input get_field detect_project_root get_claude_dir project_hash resolve_proof_file

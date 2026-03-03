@@ -150,8 +150,7 @@ fi
 # Only blocks when status is pending or needs-verification (gate is active).
 # Verified status can be cleaned up freely.
 if echo "$_proof_stripped" | grep -qE 'rm\s+(-[a-zA-Z]*\s+)*\S*proof-status'; then
-    _ps_dir=$(get_claude_dir)
-    _ps_file="${_ps_dir}/.proof-status"
+    _ps_file=$(resolve_proof_file)
     if [[ -f "$_ps_file" ]]; then
         _ps_val=$(cut -d'|' -f1 "$_ps_file")
         if [[ "$_ps_val" == "pending" || "$_ps_val" == "needs-verification" ]]; then
@@ -240,8 +239,8 @@ if echo "$COMMAND" | grep -qE 'git\s+[^|;&]*\bcommit([^a-zA-Z0-9-]|$)'; then
         if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
             # Check if ONLY MASTER_PLAN.md is staged (plan files allowed per Core Dogma)
             STAGED_FILES=$(git -C "$TARGET_DIR" diff --cached --name-only 2>/dev/null || echo "")
-            if [[ "$STAGED_FILES" == "MASTER_PLAN.md" ]]; then
-                : # Allow - plan file commits on main are permitted
+            if [[ "$STAGED_FILES" =~ ^(MASTER_PLAN\.md|DECISIONS\.md)($'\n'(MASTER_PLAN\.md|DECISIONS\.md))*$ ]]; then
+                : # Allow - planning artifact commits on main are permitted
             elif GIT_DIR=$(git -C "$TARGET_DIR" rev-parse --absolute-git-dir 2>/dev/null) && [[ -f "$GIT_DIR/MERGE_HEAD" ]]; then
                 : # Allow — completing a merge is the intended workflow
             else

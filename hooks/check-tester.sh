@@ -45,7 +45,7 @@ write_statusline_cache "$PROJECT_ROOT"
 ISSUES=()
 
 # Check 1: .proof-status exists (tester should have written pending)
-PROOF_FILE="${CLAUDE_DIR}/.proof-status"
+PROOF_FILE=$(resolve_proof_file)
 PROOF_STATUS="missing"
 if [[ -f "$PROOF_FILE" ]]; then
     PROOF_STATUS=$(cut -d'|' -f1 "$PROOF_FILE")
