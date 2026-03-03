@@ -18,8 +18,7 @@ set -euo pipefail
 #   - The ~/.claude directory itself (meta-infrastructure)
 #   - Non-git directories
 
-source "$(dirname "$0")/log.sh"
-source "$(dirname "$0")/context-lib.sh"
+source "$(dirname "$0")/source-lib.sh"
 
 HOOK_INPUT=$(read_input)
 FILE_PATH=$(get_field '.tool_input.file_path')
@@ -27,7 +26,6 @@ FILE_PATH=$(get_field '.tool_input.file_path')
 # Exit silently if no file path
 [[ -z "$FILE_PATH" ]] && exit 0
 
-# Skip non-source files (uses shared SOURCE_EXTENSIONS from context-lib.sh)
 is_source_file "$FILE_PATH" || exit 0
 
 # Skip test files, config files, vendor directories

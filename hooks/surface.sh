@@ -11,8 +11,7 @@ set -euo pipefail
 #
 # Checks stop_hook_active to prevent re-firing loops.
 
-source "$(dirname "$0")/log.sh"
-source "$(dirname "$0")/context-lib.sh"
+source "$(dirname "$0")/source-lib.sh"
 
 HOOK_INPUT=$(read_input)
 
@@ -97,7 +96,6 @@ done
 # --- Validate: check changed files ---
 while IFS= read -r file; do
     [[ ! -f "$file" ]] && continue
-    # Only check source files (uses shared is_source_file from context-lib.sh)
     is_source_file "$file" || continue
     # Skip test/config/generated
     is_skippable_path "$file" && continue

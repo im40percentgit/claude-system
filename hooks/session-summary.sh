@@ -9,8 +9,7 @@ set -euo pipefail
 # "stuck on Stop hooks 2/3" lockup due to non-deterministic inference time.
 # Every metric here is a wc/grep that completes instantly. Status: accepted.
 
-source "$(dirname "$0")/log.sh"
-source "$(dirname "$0")/context-lib.sh"
+source "$(dirname "$0")/source-lib.sh"
 
 HOOK_INPUT=$(read_input)
 

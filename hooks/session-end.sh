@@ -27,7 +27,7 @@
 
 set -euo pipefail
 
-source "$(dirname "$0")/log.sh"
+source "$(dirname "$0")/source-lib.sh"
 
 # Optimization: Stream input directly to jq to avoid loading potentially
 # large session history into a Bash variable (which consumes ~3-4x RAM).
