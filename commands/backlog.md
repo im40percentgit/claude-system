@@ -130,16 +130,94 @@ Report to the user:
 ```
 Issue #N classified as: simple
 Title: <title>
-No enrichment needed for simple issues — the title and description are sufficient.
+This issue is classified as simple — no enrichment needed.
 Tip: If this turns out to be more involved than expected, re-run with /backlog enrich <N> --force
 ```
+Stop here. No further action required.
 
 #### Tier: medium
+
+<!-- @decision DEC-ENRICH-004
+     In-place body update wraps original content in a <details> block and prepends
+     enriched sections above it. No original text is lost. Uses `gh issue edit --body`
+     with a variable (not a file) to keep the flow self-contained in the slash command.
+     Addresses: REQ-P0-005. -->
+
+Report to the user: "Issue #N classified as medium — running enrichment now."
+
+**Medium enrichment steps:**
+
+**Step M1 — Extract title and original body from already-fetched JSON:**
+You already have the issue JSON in `$SCRATCHPAD/enrich-issue.json`. Parse out `title` and `body` from that file. Call the title `ISSUE_TITLE` and the body `ORIGINAL_BODY`.
+
+**Step M2 — Identify affected files:**
+Analyze the keywords in `ISSUE_TITLE` and `ORIGINAL_BODY`. Extract 3-6 meaningful technical terms (function names, module names, feature areas, path fragments). Then use Grep and Glob to search the codebase for files most related to those keywords. For example:
+- Use Glob with patterns like `**/<keyword>*`, `**/*<keyword>*` to find files by name
+- Use Grep to search file contents for the keywords
+
+Collect the top 5-10 most relevant file paths. These will become the `AFFECTED_FILES` list.
+
+**Step M3 — Generate acceptance criteria:**
+Analyze `ISSUE_TITLE` and `ORIGINAL_BODY`. Generate 3-5 concrete, testable acceptance criteria as checkbox items. Each criterion should describe a verifiable outcome. Format them as:
+```
+- [ ] <criterion>
+```
+Call this list `ACCEPTANCE_CRITERIA`.
+
+**Step M4 — Build the enriched body:**
+Construct the new issue body by combining the enriched sections with the original content preserved in a collapsible details block. The structure must be exactly:
+
+```
+## Enriched by /backlog enrich
+
+### Complexity: Medium
+
+### Acceptance Criteria
+
+<ACCEPTANCE_CRITERIA items, one per line>
+
+### Affected Files
+
+<AFFECTED_FILES paths, one per line as a bullet list>
+
+---
+<details><summary>Original Issue</summary>
+
+<ORIGINAL_BODY>
+
+</details>
+```
+
+**Step M5 — Update the issue body:**
+Write the enriched body to a temporary file to handle multi-line content and special characters safely:
+
+```bash
+ENRICHED_BODY_FILE="$SCRATCHPAD/enriched-body-N.md"
+cat > "$ENRICHED_BODY_FILE" << 'ENRICH_EOF'
+<the full enriched body constructed in Step M4>
+ENRICH_EOF
+
+gh issue edit <N> --repo juanandresgs/claude-ctrl --body "$(cat "$ENRICHED_BODY_FILE")"
+```
+
+Write the actual content (not a placeholder) to the file before calling `gh issue edit`.
+
+**Step M6 — Add the `enriched` label:**
+```bash
+source ~/.claude/scripts/todo.sh
+ensure_enriched_label "juanandresgs/claude-ctrl"
+gh issue edit <N> --repo juanandresgs/claude-ctrl --add-label "enriched"
+```
+
 Report to the user:
 ```
-Issue #N classified as: medium
+Issue #N enriched successfully.
 Title: <title>
-Medium enrichment coming in Phase 2 (/backlog enrich will auto-generate acceptance criteria and affected files).
+Tier: medium
+Acceptance criteria: <N> items generated
+Affected files: <N> files identified
+Label `enriched` added.
+View: https://github.com/juanandresgs/claude-ctrl/issues/<N>
 ```
 
 #### Tier: complex
