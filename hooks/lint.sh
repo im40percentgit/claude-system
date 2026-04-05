@@ -26,7 +26,18 @@ is_source_file "$FILE_PATH" || exit 0
 is_skippable_path "$FILE_PATH" && exit 0
 
 # --- Detect project root ---
-PROJECT_ROOT=$(detect_project_root)
+# Derive the project root from FILE_PATH's git repo, not from the hook
+# process's CWD. This ensures that when editing files inside a git worktree
+# (which has a different path than the main repo), cargo/clippy runs from
+# the worktree root rather than the main project root — preventing stale
+# errors in the main tree from blocking worktree edits.
+FILE_DIR=$(dirname "$FILE_PATH")
+FILE_PROJECT_ROOT=$(git -C "$FILE_DIR" rev-parse --show-toplevel 2>/dev/null || echo "")
+if [[ -n "$FILE_PROJECT_ROOT" && -d "$FILE_PROJECT_ROOT" ]]; then
+    PROJECT_ROOT="$FILE_PROJECT_ROOT"
+else
+    PROJECT_ROOT=$(detect_project_root)
+fi
 CLAUDE_DIR=$(get_claude_dir)
 
 # --- Linter detection with caching ---

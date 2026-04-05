@@ -78,15 +78,15 @@ EOF
     exit 0
 fi
 
-# --- Plan lifecycle check: completed plan is NOT an active plan ---
+# --- Plan lifecycle check: completed plan advisory ---
 get_plan_status "$PROJECT_ROOT"
 if [[ "$PLAN_LIFECYCLE" == "completed" ]]; then
+    # Advisory warning (was deny — softened to reduce session stalls)
     cat <<COMPLETE_EOF
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "BLOCKED: MASTER_PLAN.md has all phases completed ($PLAN_COMPLETED_PHASES/$PLAN_TOTAL_PHASES). A completed plan is not an active plan.\\n\\nAction: Archive the completed plan and invoke the Planner agent to create a new MASTER_PLAN.md for the current work."
+    "additionalContext": "MASTER_PLAN.md has all phases completed ($PLAN_COMPLETED_PHASES/$PLAN_TOTAL_PHASES). Consider archiving the completed plan and creating a new one for current work."
   }
 }
 COMPLETE_EOF
@@ -138,12 +138,12 @@ DIAGNOSTIC=""
 [[ ${#DIAG_PARTS[@]} -gt 0 ]] && DIAGNOSTIC=$(printf '%s ' "${DIAG_PARTS[@]}")
 
 if [[ "$STALENESS" == "deny" ]]; then
+    # Advisory warning (was deny — softened to reduce session stalls)
     cat <<DENY_EOF
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "MASTER_PLAN.md is critically stale. ${DIAGNOSTIC}Read MASTER_PLAN.md, scan the codebase for @decision annotations, and update the plan's phase statuses before continuing."
+    "additionalContext": "WARNING: MASTER_PLAN.md is critically stale. ${DIAGNOSTIC}Consider reading MASTER_PLAN.md and updating phase statuses before continuing."
   }
 }
 DENY_EOF

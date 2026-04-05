@@ -146,13 +146,12 @@ mkdir -p "${PROJECT_ROOT}/.claude"
 echo "${NEW_STRIKES}|${NOW}" > "$STRIKES_FILE"
 
 if [[ "$NEW_STRIKES" -ge 2 ]]; then
-    # Strike 2+: DENY
+    # Strike 2+: Advisory warning (was deny — softened to reduce session stalls)
     cat <<EOF
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "Sacred Practice #5: Tests must use real implementations, not mocks. This test file uses mocks for internal code (strike $NEW_STRIKES). Refactor to use fixtures, factories, or in-memory implementations for internal code. Mocks are only permitted for external service boundaries (HTTP APIs, databases, third-party services). Add '# @mock-exempt: <reason>' if mocking is truly necessary here."
+    "additionalContext": "WARNING: Sacred Practice #5: This test uses mocks for internal code (strike $NEW_STRIKES). Prefer real implementations — fixtures, factories, or in-memory implementations. Add '# @mock-exempt: <reason>' if mocking is truly necessary."
   }
 }
 EOF

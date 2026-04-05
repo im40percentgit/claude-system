@@ -127,6 +127,25 @@ When code and plan diverge: **HOW** divergence (algorithm, library) → code win
 - **Research**: `deep-research`, `last30days`
 - **Workflow**: `context-preservation`
 
+## gstack
+
+Use `/browse` from gstack for all web browsing and site interaction. Never use `mcp__claude-in-chrome__*` tools.
+
+**Available skills:**
+- `/plan-ceo-review` — CEO/founder-mode plan review
+- `/plan-eng-review` — Engineering manager plan review
+- `/plan-design-review` — Designer's eye plan review
+- `/design-consultation` — Design system creation
+- `/review` — Pre-landing PR review
+- `/ship` — Ship workflow (tests, PR, push)
+- `/browse` — Headless browser for QA and site testing
+- `/qa` — QA test and fix bugs
+- `/qa-only` — QA report only (no fixes)
+- `/qa-design-review` — Visual design audit
+- `/setup-browser-cookies` — Import browser cookies for auth
+- `/retro` — Weekly engineering retrospective
+- `/document-release` — Post-ship documentation update
+
 ## Web Fetching
 
 `WebFetch` works for most URLs. When it fails (blocked domains, cascade errors), a PostToolUse hook automatically suggests alternatives. For batch fetching (3+ URLs), prefer `batch-fetch.py` via Bash to avoid cascade failures.
@@ -135,7 +154,7 @@ When code and plan diverge: **HOW** divergence (algorithm, library) → code win
 |----------|--------|-----|
 | Single URL in conversation | `WebFetch` or `mcp__fetch__fetch` | Both work; hook suggests fallback on failure |
 | Multiple URLs (3+) in a skill/agent | `batch-fetch.py` via Bash | Cascade-proof — single tool call |
-| JS-rendered / bot-blocked site | Playwright MCP (`browser_navigate` → `browser_snapshot`) | Full browser rendering |
+| JS-rendered / bot-blocked site | `/browse` (gstack) | Headless browser with full rendering |
 | Blocked/failed WebFetch | `mcp__fetch__fetch` | Hook suggests this automatically |
 
 ## Notes

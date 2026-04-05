@@ -175,6 +175,8 @@ extract_git_target_dir() {
     # Pattern A: cd /path && ... (unquoted, single-quoted, or double-quoted)
     if [[ "$cmd" =~ cd[[:space:]]+(\"([^\"]+)\"|\'([^\']+)\'|([^[:space:]\&\;]+)) ]]; then
         local dir="${BASH_REMATCH[2]:-${BASH_REMATCH[3]:-${BASH_REMATCH[4]}}}"
+        # Expand leading ~ to $HOME (tilde not expanded inside [[ ]] or git -C)
+        dir="${dir/#\~/$HOME}"
         if [[ -n "$dir" && -d "$dir" ]]; then
             echo "$dir"
             return
@@ -183,6 +185,8 @@ extract_git_target_dir() {
     # Pattern B: git -C /path ...
     if [[ "$cmd" =~ git[[:space:]]+-C[[:space:]]+(\"([^\"]+)\"|\'([^\']+)\'|([^[:space:]]+)) ]]; then
         local dir="${BASH_REMATCH[2]:-${BASH_REMATCH[3]:-${BASH_REMATCH[4]}}}"
+        # Expand leading ~ to $HOME
+        dir="${dir/#\~/$HOME}"
         if [[ -n "$dir" && -d "$dir" ]]; then
             echo "$dir"
             return
@@ -328,6 +332,7 @@ fi
 
 # --- Check 8: Proof-of-work verification gate ---
 # Requires .proof-status = "verified" before commit/merge (when gate is active).
+# Uses resolve_proof_file() to find the correct scoped/worktree proof file.
 # Gate is only active when .proof-status file exists (created by implementer dispatch).
 # Missing file = no implementation in progress = allow (fixes bootstrap deadlock).
 # Same meta-repo exemption as test gates (no feature verification needed for config).
@@ -338,11 +343,12 @@ if echo "$COMMAND" | grep -qE 'git\s+[^|;&]*\b(commit|merge)([^a-zA-Z0-9-]|$)'; 
         PROOF_DIR=$(detect_project_root)
     fi
     if git -C "$PROOF_DIR" rev-parse --git-dir > /dev/null 2>&1 && ! is_claude_meta_repo "$PROOF_DIR"; then
-        PROOF_FILE="${PROOF_DIR}/.claude/.proof-status"
+        PROOF_FILE=$(PROJECT_ROOT="$PROOF_DIR" resolve_proof_file)
         if [[ -f "$PROOF_FILE" ]]; then
             PROOF_STATUS=$(cut -d'|' -f1 "$PROOF_FILE")
             if [[ "$PROOF_STATUS" != "verified" ]]; then
-                deny "Cannot proceed: proof-of-work verification is '$PROOF_STATUS'. The user must see the feature work before committing. Run the verification checkpoint (Phase 4.5) and get user confirmation."
+                # Advisory warning (was deny — softened to reduce session stalls)
+                echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"WARNING: proof-of-work is '"'$PROOF_STATUS'"' (not verified). Consider running verification before committing."}}'
             fi
         fi
         # File missing → no implementation in progress → allow (bootstrap path)

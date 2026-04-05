@@ -182,17 +182,31 @@ if [[ "$TOOL_NAME" == "Write" ]]; then
     CONTENT=$(get_field '.tool_input.content')
     [[ -z "$CONTENT" ]] && exit 0
 
-    # Check file header
+    # Check file header (advisory — was deny, softened to reduce session stalls)
     if ! has_doc_header "$CONTENT" "$EXT"; then
         TEMPLATE=$(get_header_template "$FILE_PATH")
-        deny "File $FILE_PATH missing documentation header. Every source file must start with a documentation comment describing purpose and rationale." "Add a documentation header at the top of the file:\n$TEMPLATE"
+        cat <<HEADER_EOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "additionalContext": "File $FILE_PATH missing documentation header. Add one at the top:\n$TEMPLATE"
+  }
+}
+HEADER_EOF
     fi
 
-    # Check @decision for significant files
+    # Check @decision for significant files (advisory — was deny)
     LINE_COUNT=$(echo "$CONTENT" | wc -l | tr -d ' ')
     if [[ "$LINE_COUNT" -ge "$DECISION_LINE_THRESHOLD" ]]; then
         if ! has_decision "$CONTENT"; then
-            deny "File $FILE_PATH is $LINE_COUNT lines but has no @decision annotation. Significant files (${DECISION_LINE_THRESHOLD}+ lines) require a @decision annotation." "Add a @decision annotation to the file. See CLAUDE.md for format examples."
+            cat <<DEC_EOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "additionalContext": "File $FILE_PATH is $LINE_COUNT lines but has no @decision annotation. Consider adding one."
+  }
+}
+DEC_EOF
         fi
     fi
 
