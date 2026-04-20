@@ -369,9 +369,20 @@ if [[ -n "${CODE_NOT_PLAN:-}" ]]; then
     } >> "$REGISTRY_TMP"
 fi
 
-# Write registry if decisions found
+# Write registry if decisions found.
+# Skip overwrite when only the "Last updated" timestamp would change —
+# otherwise every session regenerates an identical registry and leaves
+# DECISIONS.md perpetually "dirty" in git status. Compare content sans
+# the timestamp line.
 if [[ -s "$DEC_IDS_FILE" ]]; then
-    mv "$REGISTRY_TMP" "$REGISTRY"
+    if [[ -f "$REGISTRY" ]] && diff -q \
+            <(grep -v '^> Last updated:' "$REGISTRY") \
+            <(grep -v '^> Last updated:' "$REGISTRY_TMP") >/dev/null 2>&1; then
+        # Content identical; preserve existing file (keeps mtime + git-clean)
+        rm -f "$REGISTRY_TMP"
+    else
+        mv "$REGISTRY_TMP" "$REGISTRY"
+    fi
 else
     rm -f "$REGISTRY_TMP"
 fi
