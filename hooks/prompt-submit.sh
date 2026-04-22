@@ -110,7 +110,14 @@ if echo "$PROMPT" | grep -qiE '\bverified\b|\bapproved?\b|\blgtm\b|\blooks\s+goo
     if [[ -f "$PROOF_FILE" ]]; then
         CURRENT_STATUS=$(cut -d'|' -f1 "$PROOF_FILE" 2>/dev/null)
         if [[ "$CURRENT_STATUS" == "pending" || "$CURRENT_STATUS" == "needs-verification" ]]; then
-            echo "verified|$(date +%s)" > "$PROOF_FILE"
+            TS=$(date +%s)
+            echo "verified|$TS" > "$PROOF_FILE"
+            # Dual-write to legacy path so direct readers (e.g. agents/guardian.md) see the flip.
+            # resolve_proof_file() prefers the scoped path; Guardian currently reads .proof-status directly.
+            LEGACY_PROOF="$PROJECT_ROOT/.claude/.proof-status"
+            if [[ "$PROOF_FILE" != "$LEGACY_PROOF" && -d "$(dirname "$LEGACY_PROOF")" ]]; then
+                echo "verified|$TS" > "$LEGACY_PROOF" 2>/dev/null || true
+            fi
             CONTEXT_PARTS+=("Proof-of-work verified by user. Guardian dispatch is now unblocked.")
         fi
     fi
