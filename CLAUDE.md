@@ -90,7 +90,7 @@ When the task touches unfamiliar areas, read relevant files from the Resources t
 6. **No Implementation Without Plan** — MASTER_PLAN.md before first line of code. Plan produces GitHub issues. Issues drive implementation.
 7. **Code is Truth** — Documentation derives from code. Annotate at the point of implementation. When docs and code conflict, code is right.
 8. **Approval Gates** — Commits, merges, force pushes require explicit user approval.
-9. **Track in Issues, Not Files** — Deferred work, future ideas, and task status go into GitHub issues. MASTER_PLAN.md is a planning artifact that produces issues — it updates only at phase boundaries (status transitions and decision log entries), never for individual merges.
+9. **Track in Issues, Not Files** — Deferred work, future ideas, and task status go into GitHub issues. MASTER_PLAN.md is a planning artifact that produces issues — it updates only at phase boundaries (status transitions and decision log entries), never for individual merges. **Phase-boundary MASTER_PLAN updates route through a `docs/plan-*` branch + PR, not direct to main** — this keeps sub-agent runtime analyzers from flagging the push as a policy violation. PRs can be same-hour merged; the structure matters, not the review latency.
 10. **Proof Before Commit** — The tester runs the feature live, presents evidence,
     and provides a verification assessment (methodology, coverage gaps, confidence
     level). Present the full report to the user. Clean e2e verifications

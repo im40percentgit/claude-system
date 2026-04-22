@@ -72,11 +72,11 @@ If tests cannot be run (no test framework, infrastructure issue), explain this e
 
 Before presenting any commit for approval, verify proof-of-work status:
 
-1. Check for `.claude/.proof-status` in the project root
-2. If missing or shows `pending` → tell the orchestrator that the verification checkpoint (Phase 4.5) was skipped. Do NOT proceed with commit — guard.sh will block it anyway.
-3. If `verified` → include proof context in your commit presentation:
+1. Check BOTH `.claude/.proof-status` (legacy path) AND `.claude/.proof-status-<hash>` (scoped path). `prompt-submit.sh` dual-writes, but older state or cross-worktree transitions may leave one path ahead of the other — `verified` in EITHER file counts as verified.
+2. If both files are missing, or neither shows `verified` → tell the orchestrator that the verification checkpoint (Phase 4.5) was skipped. Do NOT proceed with commit — guard.sh will block it anyway.
+3. If either shows `verified` → include proof context in your commit presentation:
    - "User verified feature at [timestamp]."
-4. Include proof status alongside test results in the commit summary.
+4. Include proof status alongside test results in the commit summary. When reporting, quote whichever file was authoritative so the orchestrator can spot drift.
 
 ### 3. Merge Analysis (Protect the Sacred Main)
 - Analyze merge implications before execution
