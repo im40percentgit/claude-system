@@ -157,7 +157,7 @@ if [[ -f "$PROJECT_ROOT/MASTER_PLAN.md" ]]; then
     CODE_DECS=""
     for dir in "${SCAN_DIRS[@]}"; do
         if command -v rg &>/dev/null; then
-            dir_decs=$(rg -oN 'DEC-[A-Z]+-[0-9]+' "$dir" \
+            dir_decs=$(rg -oNI 'DEC-[A-Z]+-[0-9]+' "$dir" \
                 --glob '*.ts' --glob '*.tsx' --glob '*.js' --glob '*.jsx' \
                 --glob '*.py' --glob '*.rs' --glob '*.go' --glob '*.java' \
                 --glob '*.c' --glob '*.cpp' --glob '*.h' --glob '*.hpp' \
@@ -182,13 +182,13 @@ if [[ -f "$PROJECT_ROOT/MASTER_PLAN.md" ]]; then
     DEPRECATED_DECS=""
     for dir in "${SCAN_DIRS[@]}"; do
         if command -v rg &>/dev/null; then
-            dir_dep=$(rg -oN '@status\s+(deprecated|superseded)' "$dir" \
+            dir_dep=$(rg -oNI '@status\s+(deprecated|superseded)' "$dir" \
                 --glob '*.ts' --glob '*.tsx' --glob '*.js' --glob '*.jsx' \
                 --glob '*.py' --glob '*.rs' --glob '*.go' --glob '*.java' \
                 --glob '*.sh' --glob '*.rb' --glob '*.php' \
                 2>/dev/null || echo "")
             # Also check inline format: Status: deprecated
-            dir_dep2=$(rg -oN 'Status:\s*(deprecated|superseded)' "$dir" \
+            dir_dep2=$(rg -oNI 'Status:\s*(deprecated|superseded)' "$dir" \
                 --glob '*.ts' --glob '*.tsx' --glob '*.js' --glob '*.jsx' \
                 --glob '*.py' --glob '*.rs' --glob '*.go' --glob '*.java' \
                 --glob '*.sh' --glob '*.rb' --glob '*.php' \
@@ -298,7 +298,7 @@ DEC_IDS_FILE=$(mktemp)
 # Collect all DEC-IDs from source
 for dir in "${SCAN_DIRS[@]}"; do
     if command -v rg &>/dev/null; then
-        rg -oN 'DEC-[A-Z]+-[0-9]+' "$dir" \
+        rg -oNI 'DEC-[A-Z]+-[0-9]+' "$dir" \
             --glob '*.{ts,tsx,js,jsx,py,rs,go,java,c,cpp,h,hpp,sh,rb,php}' \
             2>/dev/null >> "$DEC_IDS_FILE" || true
     else
