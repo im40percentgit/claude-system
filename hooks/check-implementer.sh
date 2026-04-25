@@ -39,9 +39,35 @@ write_statusline_cache "$PROJECT_ROOT"
 ISSUES=()
 
 # Check 1: Current branch is NOT main/master (worktree was used)
+# The orchestrator's CWD is legitimately on main per CLAUDE.md. To avoid
+# false positives we check whether the implementer's session-changes file
+# shows ALL modified files living inside a worktree path. If so, the
+# implementer worked in a worktree even though PROJECT_ROOT is on main.
 CURRENT_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
-    ISSUES+=("Implementation on $CURRENT_BRANCH branch — worktree should have been used")
+    # Resolve session-changes file (same logic as Check 2 below uses $CHANGES)
+    SESSION_ID_C1="${CLAUDE_SESSION_ID:-}"
+    CHANGES_FILE_C1=""
+    if [[ -n "$SESSION_ID_C1" && -f "${CLAUDE_DIR}/.session-changes-${SESSION_ID_C1}" ]]; then
+        CHANGES_FILE_C1="${CLAUDE_DIR}/.session-changes-${SESSION_ID_C1}"
+    elif [[ -f "${CLAUDE_DIR}/.session-changes" ]]; then
+        CHANGES_FILE_C1="${CLAUDE_DIR}/.session-changes"
+    fi
+
+    USED_WORKTREE=false
+    if [[ -n "$CHANGES_FILE_C1" && -s "$CHANGES_FILE_C1" ]]; then
+        # If every non-blank path lives under .claude/worktrees/ or
+        # .worktrees/, the implementer used a worktree — suppress the warning.
+        OUTSIDE=$(grep -vE "(^|/)\.claude/worktrees/|(^|/)\.worktrees/" "$CHANGES_FILE_C1" \
+                  | grep -vE '^\s*$' | head -1)
+        if [[ -z "$OUTSIDE" ]]; then
+            USED_WORKTREE=true
+        fi
+    fi
+
+    if [[ "$USED_WORKTREE" != "true" ]]; then
+        ISSUES+=("Implementation on $CURRENT_BRANCH branch — worktree should have been used")
+    fi
 fi
 
 # Check 2: Scan session-changes for 50+ line source files missing @decision
@@ -107,9 +133,23 @@ if [[ -n "$TRACE_ID" ]]; then
     if [[ ! -f "$TRACE_DIR/summary.md" ]]; then
         echo "$RESPONSE_TEXT" | head -c 4000 > "$TRACE_DIR/summary.md" 2>/dev/null || true
     fi
-    # Validate expected artifacts
+    # Validate expected artifacts — conditionally, based on task type.
+    # test-output.txt is only meaningful when tests were actually run.
+    # files-changed.txt is only meaningful when files were actually changed.
     for artifact in test-output.txt files-changed.txt; do
         if [[ ! -f "$TRACE_DIR/artifacts/$artifact" ]]; then
+            if [[ "$artifact" == "test-output.txt" ]]; then
+                # Skip if no test status was recorded this session (docs-only,
+                # plan refresh, gitignore edit, etc.)
+                read_test_status "$PROJECT_ROOT" 2>/dev/null || continue
+            fi
+            if [[ "$artifact" == "files-changed.txt" ]]; then
+                # Skip if session-changes is absent or empty — no files were
+                # modified so there is nothing to capture.
+                if [[ -z "$CHANGES" || ! -s "$CHANGES" ]]; then
+                    continue
+                fi
+            fi
             ISSUES+=("Trace artifact missing: $artifact (TRACE_DIR=$TRACE_DIR)")
         fi
     done
