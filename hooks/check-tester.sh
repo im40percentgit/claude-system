@@ -56,9 +56,15 @@ if [[ "$PROOF_STATUS" == "missing" ]]; then
 fi
 
 # Check 2: Trace artifacts include verification evidence (not just test output)
+# Only require verification-output.txt when the tester actually ran a
+# verification (proof-status was written). If proof-status is missing the
+# tester didn't complete its job — that is already flagged by Check 1 above,
+# and demanding the artifact on top is a redundant/noisy false positive.
 if [[ -n "$TRACE_DIR" && -d "$TRACE_DIR/artifacts" ]]; then
     if [[ ! -f "$TRACE_DIR/artifacts/verification-output.txt" ]]; then
-        ISSUES+=("Trace artifact missing: verification-output.txt — tester should capture live feature output")
+        if [[ "$PROOF_STATUS" != "missing" ]]; then
+            ISSUES+=("Trace artifact missing: verification-output.txt — tester should capture live feature output")
+        fi
     fi
     # Validate summary exists
     if [[ ! -f "$TRACE_DIR/summary.md" ]]; then
