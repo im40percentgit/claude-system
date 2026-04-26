@@ -1410,6 +1410,250 @@ safe_cleanup "$TR_TEST_DIR" "$SCRIPT_DIR"
 echo ""
 
 
+# =============================================================================
+# lib-live-e2e.sh UNIT TESTS (Phase A — DEC-LIVE-E2E-002, DEC-LIVE-E2E-005)
+# =============================================================================
+
+echo "=========================================="
+echo "LIB-LIVE-E2E.SH UNIT TESTS"
+echo "=========================================="
+echo ""
+
+# Source the library under test
+source "$HOOKS_DIR/lib-live-e2e.sh"
+
+LIB_TEST_DIR=$(mktemp -d)
+
+echo "--- classify_change: single-file path classes ---"
+
+# Test 1: hook file → runtime
+result=$(classify_change "/home/j/.claude/hooks/check-implementer.sh")
+if [[ "$result" == "runtime" ]]; then
+    pass "classify_change — hook *.sh → runtime"
+else
+    fail "classify_change — hook *.sh → runtime" "got: $result"
+fi
+
+# Test 2: agent .md → runtime
+result=$(classify_change "/home/j/.claude/agents/implementer.md")
+if [[ "$result" == "runtime" ]]; then
+    pass "classify_change — agents/*.md → runtime"
+else
+    fail "classify_change — agents/*.md → runtime" "got: $result"
+fi
+
+# Test 3: settings.json → runtime
+result=$(classify_change "/home/j/.claude/settings.json")
+if [[ "$result" == "runtime" ]]; then
+    pass "classify_change — settings.json → runtime"
+else
+    fail "classify_change — settings.json → runtime" "got: $result"
+fi
+
+# Test 4: CLAUDE.md → text
+result=$(classify_change "/home/j/.claude/CLAUDE.md")
+if [[ "$result" == "text" ]]; then
+    pass "classify_change — CLAUDE.md → text"
+else
+    fail "classify_change — CLAUDE.md → text" "got: $result"
+fi
+
+# Test 5: docs/** → text
+result=$(classify_change "/home/j/.claude/docs/manual/intro.md")
+if [[ "$result" == "text" ]]; then
+    pass "classify_change — docs/** → text"
+else
+    fail "classify_change — docs/** → text" "got: $result"
+fi
+
+# Test 6: tests/** → test
+result=$(classify_change "/home/j/.claude/tests/run-hooks.sh")
+if [[ "$result" == "test" ]]; then
+    pass "classify_change — tests/** → test"
+else
+    fail "classify_change — tests/** → test" "got: $result"
+fi
+
+echo ""
+echo "--- classify_session_changes: multi-file lists ---"
+
+# Test 7: mixed runtime+text → runtime (most-restrictive wins)
+MIXED_FILE="$LIB_TEST_DIR/mixed-changes.txt"
+printf '/home/j/.claude/hooks/lib-live-e2e.sh\n/home/j/.claude/CLAUDE.md\n' > "$MIXED_FILE"
+result=$(classify_session_changes "$MIXED_FILE")
+if [[ "$result" == "runtime" ]]; then
+    pass "classify_session_changes — runtime+text mixed → runtime"
+else
+    fail "classify_session_changes — runtime+text mixed → runtime" "got: $result"
+fi
+
+# Test 8: text-only list → text
+TEXT_ONLY_FILE="$LIB_TEST_DIR/text-only.txt"
+printf '/home/j/.claude/CLAUDE.md\n/home/j/.claude/docs/foo.md\n' > "$TEXT_ONLY_FILE"
+result=$(classify_session_changes "$TEXT_ONLY_FILE")
+if [[ "$result" == "text" ]]; then
+    pass "classify_session_changes — text-only list → text"
+else
+    fail "classify_session_changes — text-only list → text" "got: $result"
+fi
+
+echo ""
+echo "--- read_evidence_kind: legacy and current formats ---"
+
+# Test 9: missing .test-status → none
+result=$(read_evidence_kind "$LIB_TEST_DIR/nonexistent-project")
+if [[ "$result" == "none" ]]; then
+    pass "read_evidence_kind — missing file → none"
+else
+    fail "read_evidence_kind — missing file → none" "got: $result"
+fi
+
+# Test 10: legacy 3-field .test-status → none
+mkdir -p "$LIB_TEST_DIR/legacy-project/.claude"
+echo "pass|0|1714000000" > "$LIB_TEST_DIR/legacy-project/.claude/.test-status"
+result=$(read_evidence_kind "$LIB_TEST_DIR/legacy-project")
+if [[ "$result" == "none" ]]; then
+    pass "read_evidence_kind — legacy 3-field format → none (backward compat)"
+else
+    fail "read_evidence_kind — legacy 3-field format → none" "got: $result"
+fi
+
+echo ""
+echo "--- write_evidence_kind: upgrade logic ---"
+
+# Test 11: write_evidence_kind upgrades fixture → both when live already set
+mkdir -p "$LIB_TEST_DIR/upgrade-project/.claude"
+echo "pass|0|1714000000|live" > "$LIB_TEST_DIR/upgrade-project/.claude/.test-status"
+write_evidence_kind "$LIB_TEST_DIR/upgrade-project" "fixture"
+result=$(read_evidence_kind "$LIB_TEST_DIR/upgrade-project")
+if [[ "$result" == "both" ]]; then
+    pass "write_evidence_kind — live + fixture upgrade → both"
+else
+    fail "write_evidence_kind — live + fixture upgrade → both" "got: $result"
+fi
+
+echo ""
+echo "--- check_live_evidence_artifacts ---"
+
+# Test 12: non-empty live-evidence.txt → present
+TRACE_TEST_DIR="$LIB_TEST_DIR/trace-test"
+mkdir -p "$TRACE_TEST_DIR/artifacts"
+echo "classifier output here" > "$TRACE_TEST_DIR/artifacts/live-evidence.txt"
+result=$(check_live_evidence_artifacts "$TRACE_TEST_DIR")
+if [[ "$result" == "present" ]]; then
+    pass "check_live_evidence_artifacts — non-empty live-evidence.txt → present"
+else
+    fail "check_live_evidence_artifacts — non-empty live-evidence.txt → present" "got: $result"
+fi
+
+safe_cleanup "$LIB_TEST_DIR" "$SCRIPT_DIR"
+echo ""
+
+# =============================================================================
+# record-live-evidence.sh SUBPROCESS TESTS (Phase A regression — DEC-LIVE-E2E-005)
+# =============================================================================
+# These tests invoke record-live-evidence.sh as a subprocess (not sourced) to
+# verify the script is executable and the shebang line is reachable.  The tester
+# flagged exit 126 (Permission denied) when the index mode was 100644 — these
+# four cases lock that regression closed.
+#
+# @decision DEC-LIVE-E2E-006
+# @title Subprocess invocation is the correct test surface for record-live-evidence.sh
+# @status accepted
+# @rationale Sourcing the script in-process masks file-mode bugs (source doesn't
+#   exec a new process, so the kernel never checks the executable bit).  Only
+#   subprocess invocation triggers the OS permission check that produced exit 126
+#   in CI.  Tests are therefore written as subprocess calls, mirroring real agent
+#   usage where the script is called as a command, not a library.
+#   No-flag default is an error (exit 1) — --kind is mandatory because accepting
+#   a silent default would mask misconfigured agent calls that forget the flag.
+
+echo "=========================================="
+echo "RECORD-LIVE-EVIDENCE.SH SUBPROCESS TESTS"
+echo "=========================================="
+echo ""
+
+SCRIPTS_DIR="$(dirname "$HOOKS_DIR")/scripts"
+REC_SCRIPT="$SCRIPTS_DIR/record-live-evidence.sh"
+
+# Verify the script file exists and is executable before running subprocess tests
+if [[ ! -x "$REC_SCRIPT" ]]; then
+    fail "record-live-evidence.sh — executable bit" "file not executable or missing: $REC_SCRIPT"
+else
+    pass "record-live-evidence.sh — executable bit present"
+fi
+
+echo ""
+echo "--- Subprocess invocations from a subdirectory of a fake git repo ---"
+
+# Build an isolated fake git repo so project-root auto-detection via .git walk works
+REC_TEST_DIR=$(mktemp -d)
+git init "$REC_TEST_DIR" >/dev/null 2>&1
+mkdir -p "$REC_TEST_DIR/.claude"
+# Start with a known .test-status so write_evidence_kind has a base to upgrade
+echo "pass|0|1714000000|none" > "$REC_TEST_DIR/.claude/.test-status"
+
+# Create a subdirectory two levels deep — the script must walk up to find .git
+REC_SUBDIR="$REC_TEST_DIR/deep/nested"
+mkdir -p "$REC_SUBDIR"
+
+# Test A: --kind live from subdirectory → exit 0, field 4 upgraded to "live"
+output=$( cd "$REC_SUBDIR" && "$REC_SCRIPT" --kind live --project "$REC_TEST_DIR" 2>&1 )
+exit_code=$?
+if [[ "$exit_code" -eq 0 ]]; then
+    pass "record-live-evidence.sh subprocess — --kind live → exit 0"
+else
+    fail "record-live-evidence.sh subprocess — --kind live → exit 0" "exit $exit_code; output: $output"
+fi
+
+# Verify field 4 was actually written
+field4=$(cut -d'|' -f4 < "$REC_TEST_DIR/.claude/.test-status" 2>/dev/null || echo "")
+if [[ "$field4" == "live" ]]; then
+    pass "record-live-evidence.sh subprocess — --kind live writes field 4"
+else
+    fail "record-live-evidence.sh subprocess — --kind live writes field 4" "got field4='$field4'"
+fi
+
+# Test B: --kind banana (invalid value) → non-zero exit
+# Note: command substitution on assignment RHS does not trigger set -e; $? captures the exit code.
+output=$( cd "$REC_SUBDIR" && "$REC_SCRIPT" --kind banana --project "$REC_TEST_DIR" 2>&1 )
+invalid_exit=$?
+if [[ "$invalid_exit" -ne 0 ]]; then
+    pass "record-live-evidence.sh subprocess — --kind banana → non-zero exit ($invalid_exit)"
+else
+    fail "record-live-evidence.sh subprocess — --kind banana → non-zero exit" "got exit 0; output: $output"
+fi
+
+# Test C: no flags at all → non-zero exit (--kind is mandatory; see DEC-LIVE-E2E-006)
+output=$( cd "$REC_SUBDIR" && "$REC_SCRIPT" 2>&1 )
+noflag_exit=$?
+if [[ "$noflag_exit" -ne 0 ]]; then
+    pass "record-live-evidence.sh subprocess — no flags → non-zero exit ($noflag_exit)"
+else
+    fail "record-live-evidence.sh subprocess — no flags → non-zero exit" "got exit 0; output: $output"
+fi
+
+# Test D: project-root auto-detection from subdirectory (no --project flag)
+# Reset .test-status for a clean auto-detect run
+echo "pass|0|1714000000|none" > "$REC_TEST_DIR/.claude/.test-status"
+output=$( cd "$REC_SUBDIR" && CLAUDE_PROJECT_ROOT="$REC_TEST_DIR" "$REC_SCRIPT" --kind fixture 2>&1 )
+autodetect_exit=$?
+if [[ "$autodetect_exit" -eq 0 ]]; then
+    pass "record-live-evidence.sh subprocess — auto-detect via CLAUDE_PROJECT_ROOT → exit 0"
+else
+    fail "record-live-evidence.sh subprocess — auto-detect via CLAUDE_PROJECT_ROOT → exit 0" "exit $autodetect_exit; output: $output"
+fi
+field4_auto=$(cut -d'|' -f4 < "$REC_TEST_DIR/.claude/.test-status" 2>/dev/null || echo "")
+if [[ "$field4_auto" == "fixture" ]]; then
+    pass "record-live-evidence.sh subprocess — auto-detect writes correct field 4 (fixture)"
+else
+    fail "record-live-evidence.sh subprocess — auto-detect writes correct field 4" "got: '$field4_auto'"
+fi
+
+safe_cleanup "$REC_TEST_DIR" "$SCRIPT_DIR"
+echo ""
+
+
 # --- Summary ---
 echo "==========================="
 total=$((passed + failed + skipped))

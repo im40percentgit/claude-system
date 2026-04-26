@@ -1,0 +1,2 @@
+/home/j/.claude/hooks/lib-live-e2e.sh
+/home/j/.claude/CLAUDE.md
