@@ -49,19 +49,32 @@ EOF
     exit 0
 }
 
-# Advisory — inject the risk reason as context for the permission system.
-# Exits 0 (no opinion on permission), but provides the model with context
-# about WHY the command is risky so it can explain to the user.
+# Advisory — silent-log mode.
+# @decision DEC-AUTOREVIEW-002
+# @title Demote advisories to silent-log; stop injecting context
+# @status accepted
+# @rationale The Tier-1/2/3 classifier produces high false-positive
+#   rates on novel commands (script names, regex content, env-var names,
+#   bash keywords inside compound commands). Each false positive injects
+#   a system-reminder block into model context, polluting the working
+#   set. Silent-log preserves the audit trail and keeps the analysis
+#   running (for the permission system to pick up), but stops talking
+#   back to the model. Real risks (rm -rf, --force, --no-verify, chmod
+#   777, etc.) still trigger the normal permission prompt — the hook
+#   simply no longer narrates why.
+# Log: $HOME/.claude/auto-review-log.tsv  (timestamp, command, reason)
 advise() {
     local reason="${RISK_REASON:-unknown risk}"
-    cat <<EOF
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "additionalContext": "auto-review risk: $reason"
-  }
-}
-EOF
+    local ts
+    ts=$(date -u +%s)
+    # TSV-sanitize: collapse tabs/newlines in the command so the log stays
+    # one-record-per-line for grep/awk consumption.
+    local cmd_safe="${COMMAND//$'\t'/ }"
+    cmd_safe="${cmd_safe//$'\n'/ }"
+    printf '%s\t%s\t%s\n' "$ts" "$cmd_safe" "$reason" \
+        >> "$HOME/.claude/auto-review-log.tsv" 2>/dev/null || true
+    # No hookSpecificOutput → no context injection. Exit 0 = no veto;
+    # the normal permission system handles the prompt without our narration.
     exit 0
 }
 
