@@ -199,15 +199,39 @@ rm -f "${LOCK_DIR}/.test-runner.out"
 date +%s > "$LAST_RUN_FILE"
 
 # --- Write test status for test-gate.sh and guard.sh ---
+# Format: result|fail_count|timestamp|evidence_kind  (DEC-LIVE-E2E-005)
+# test-runner.sh writes evidence_kind=fixture (automated test suite ran).
+# The 4th field is additive — existing readers using cut -d'|' -f1..3 are unaffected.
+# write_evidence_kind() is not used here because we want to set fixture unconditionally
+# and preserve any existing live/both evidence_kind from a prior record-live-evidence call.
 TEST_STATUS_FILE="${CLAUDE_DIR}/.test-status"
 if [[ "$TEST_EXIT" -ne 0 ]]; then
     FAIL_COUNT=$(echo "$TEST_OUTPUT" | grep -cE '(FAIL|FAILED|ERROR|fail)' || echo "1")
     [[ "$FAIL_COUNT" -eq 0 ]] && FAIL_COUNT=1
-    echo "fail|${FAIL_COUNT}|$(date +%s)" > "$TEST_STATUS_FILE"
+    # On failure, preserve existing evidence_kind (don't downgrade live→none on a test flap).
+    PREV_KIND=""
+    if [[ -f "$TEST_STATUS_FILE" ]]; then
+        PREV_KIND=$(cut -d'|' -f4 < "$TEST_STATUS_FILE" 2>/dev/null || echo "")
+    fi
+    case "$PREV_KIND" in
+        live|both) EVIDENCE_KIND="$PREV_KIND" ;;
+        *)         EVIDENCE_KIND="none" ;;
+    esac
+    echo "fail|${FAIL_COUNT}|$(date +%s)|${EVIDENCE_KIND}" > "$TEST_STATUS_FILE"
     # Audit trail
     append_audit "$PROJECT_ROOT" "test_fail" "${RUNNER}: ${FAIL_COUNT} failures"
 else
-    echo "pass|0|$(date +%s)" > "$TEST_STATUS_FILE"
+    # On pass, upgrade: if live evidence already recorded, merge to both; else fixture.
+    PREV_KIND=""
+    if [[ -f "$TEST_STATUS_FILE" ]]; then
+        PREV_KIND=$(cut -d'|' -f4 < "$TEST_STATUS_FILE" 2>/dev/null || echo "")
+    fi
+    case "$PREV_KIND" in
+        live)    EVIDENCE_KIND="both"    ;;
+        both)    EVIDENCE_KIND="both"    ;;
+        *)       EVIDENCE_KIND="fixture" ;;
+    esac
+    echo "pass|0|$(date +%s)|${EVIDENCE_KIND}" > "$TEST_STATUS_FILE"
 fi
 
 # --- Report results ---
