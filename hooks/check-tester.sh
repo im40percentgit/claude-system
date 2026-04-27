@@ -6,6 +6,9 @@ set -euo pipefail
 #   - .proof-status exists (at least pending)
 #   - If tester signals AUTOVERIFY: CLEAN with High confidence and full coverage,
 #     auto-writes verified status (bypasses manual approval)
+#   - If tester signals AUTOVERIFY: CLEAN (hardware-only gap waived) with High
+#     confidence, auto-writes verified even when "Not tested" rows are present
+#     for hardware-availability gaps (bypasses strict coverage check)
 #   - If still pending → exit 0 with advisory (user approval flow)
 #   - If verified → exit 0 (Guardian dispatch unblocked)
 #
@@ -18,6 +21,11 @@ set -euo pipefail
 #   verified — bypassing manual approval. Otherwise, the user must approve.
 #   Guard.sh Check 9 only blocks Bash tool writes, not hook file operations.
 #   track.sh resets proof if source files change post-verification.
+#
+# @decision DEC-TESTER-002
+# @title Hardware-only gap waiver for AUTOVERIFY auto-flip
+# @status accepted
+# @rationale See inline annotation at the hw-waived branch below.
 
 source "$(dirname "$0")/log.sh"
 source "$(dirname "$0")/context-lib.sh"
@@ -120,8 +128,40 @@ EOF
 elif [[ "$PROOF_STATUS" == "pending" ]]; then
     # --- Auto-verify: check if tester signals clean verification ---
     AUTO_VERIFIED=false
-    if echo "$RESPONSE_TEXT" | grep -q 'AUTOVERIFY: CLEAN'; then
-        # Secondary validation — reject false claims
+
+    # @decision DEC-TESTER-002
+    # @title Hardware-only gap waiver for AUTOVERIFY auto-flip
+    # @status accepted
+    # @rationale The strict AUTOVERIFY: CLEAN check rejects "Not tested" anywhere
+    #   in the response, including coverage table rows that the tester explicitly
+    #   classifies as hardware-availability gaps (not code-correctness). This new
+    #   "(hardware-only gap waived)" suffix lets the tester opt into a relaxed
+    #   check when every "Not tested" row is a hardware path that would only be
+    #   exercised post-merge in the field. Strict path is preserved unchanged for
+    #   software-only verification flows.
+    #
+    # IMPORTANT: Check the longer sentinel FIRST. The shorter "AUTOVERIFY: CLEAN"
+    # is a substring of the longer form; matching strict first would incorrectly
+    # apply strict validation to hw-waived responses.
+    if echo "$RESPONSE_TEXT" | grep -qF 'AUTOVERIFY: CLEAN (hardware-only gap waived)'; then
+        # Hardware-only gap waiver path — relaxed secondary validation
+        AV_FAIL=false
+        # Must have High confidence (markdown bold)
+        echo "$RESPONSE_TEXT" | grep -qi '\*\*High\*\*' || AV_FAIL=true
+        # Must NOT have Medium or Low confidence
+        echo "$RESPONSE_TEXT" | grep -qi '\*\*Medium\*\*\|\*\*Low\*\*' && AV_FAIL=true
+        # NOTE: "Not tested" rows ARE allowed — that is the purpose of this waiver.
+        # The tester's report must classify them as hardware-availability gaps.
+
+        if [[ "$AV_FAIL" == "false" ]]; then
+            echo "verified|$(date +%s)" > "$PROOF_FILE"
+            AUTO_VERIFIED=true
+            append_audit "$PROJECT_ROOT" "auto_verify_hw_waived" "Tester signaled AUTOVERIFY: CLEAN (hardware-only gap waived) — secondary validation passed (Not tested rows allowed)"
+        else
+            append_audit "$PROJECT_ROOT" "auto_verify_rejected" "Tester signaled AUTOVERIFY: CLEAN (hardware-only gap waived) but secondary validation failed (missing High confidence or has Medium/Low)"
+        fi
+    elif echo "$RESPONSE_TEXT" | grep -qF 'AUTOVERIFY: CLEAN'; then
+        # Strict path (unchanged) — no "Not tested" or "Partially verified" allowed
         AV_FAIL=false
         # Must have High confidence (markdown bold)
         echo "$RESPONSE_TEXT" | grep -qi '\*\*High\*\*' || AV_FAIL=true

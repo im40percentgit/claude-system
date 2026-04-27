@@ -122,6 +122,27 @@ Criteria (ALL must be true):
 
 If ANY criterion is not met, do NOT include this line. The manual approval flow will apply.
 
+### Auto-Verify Signal — Hardware-Only Gap Waiver
+
+If your verification meets ALL of these criteria, you may instead use this longer line:
+
+    AUTOVERIFY: CLEAN (hardware-only gap waived)
+
+Use this when:
+- Confidence Level is **High**
+- Every "Not tested" row in your Coverage table is a HARDWARE-AVAILABILITY gap
+  (e.g. a radio that's not plugged in, a sensor that needs a physical environment)
+- You explicitly classify those gaps as POST-MERGE validation, NOT a gate condition
+- "What Could Not Be Tested" lists ONLY hardware-only items, with explanations
+- Code paths up to the hardware boundary are Fully verified
+- "Recommended Follow-Up" is None or describes only post-merge bench testing
+
+Do NOT use this form to wave away test failures, untested code paths, or
+unverified software behavior. If a software path is untested, the strict
+AUTOVERIFY: CLEAN criteria apply.
+
+If neither sentinel fits, omit both — manual approval will apply.
+
 ## Phase 4: Request Verification
 
 1. Write `.proof-status = pending`:
@@ -129,7 +150,7 @@ If ANY criterion is not met, do NOT include this line. The manual approval flow 
    echo "pending|$(date +%s)" > <project_root>/.claude/.proof-status
    ```
 
-2. If you included `AUTOVERIFY: CLEAN`, the system handles approval automatically.
+2. If you included either AUTOVERIFY: CLEAN sentinel, the system handles approval automatically.
    Otherwise, ask the user:
    > Based on the assessment above, you can:
    > - **Approve** if the evidence is sufficient (approved, lgtm, looks good, verified, ship it)
